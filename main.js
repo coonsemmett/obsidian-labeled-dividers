@@ -35,6 +35,8 @@ var DEFAULT_SETTINGS = {
   labelColor: "#888888",
   labelFontSize: 11,
   labelUppercase: true,
+  labelBold: true,
+  labelItalic: false,
   enabled: true
 };
 function escapeForCss(str) {
@@ -144,7 +146,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
       this.removeDividers();
     }
   }
-  addDividerToItem(itemName, itemType, position, label) {
+  addDividerToItem(itemName, itemType, position, label, labelStyle) {
     const exists = this.settings.dividers.find(
       (d) => d.itemName === itemName && d.itemType === itemType && d.position === position
     );
@@ -160,6 +162,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     };
     if (label && label.trim()) {
       divider.label = label.trim();
+      divider.labelStyle = labelStyle != null ? labelStyle : "above";
     }
     this.settings.dividers.push(divider);
     this.saveSettings();
@@ -167,10 +170,30 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     new import_obsidian.Notice(`Added divider${labelPart} ${position} ${itemType} "${itemName}"`);
   }
   promptAndAddLabeledDivider(itemName, itemType, position) {
-    new LabelInputModal(this.app, "", (label) => {
+    new LabelInputModal(this.app, "", "above", (label, labelStyle) => {
       if (label === null) return;
-      this.addDividerToItem(itemName, itemType, position, label);
+      this.addDividerToItem(itemName, itemType, position, label, labelStyle);
     }).open();
+  }
+  updateDividerStyle(itemName, itemType, position, labelStyle) {
+    const divider = this.settings.dividers.find(
+      (d) => d.itemName === itemName && d.itemType === itemType && d.position === position
+    );
+    if (!divider) return;
+    divider.labelStyle = labelStyle;
+    this.saveSettings();
+  }
+  updateDividerColor(itemName, itemType, position, field, value) {
+    const divider = this.settings.dividers.find(
+      (d) => d.itemName === itemName && d.itemType === itemType && d.position === position
+    );
+    if (!divider) return;
+    if (value === null || value === "") {
+      delete divider[field];
+    } else {
+      divider[field] = value;
+    }
+    this.saveSettings();
   }
   updateDividerLabel(itemName, itemType, position, label) {
     const divider = this.settings.dividers.find(
@@ -222,19 +245,72 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
       return;
     }
     const cssRules = this.settings.dividers.map((divider) => {
+      var _a;
       const pseudoElement = divider.position === "above" ? "before" : "after";
       const itemClass = divider.itemType === "folder" ? "nav-folder" : "nav-file";
       const selectorBase = `.${itemClass}-divider-${divider.position}[data-item="${escapeForCss(divider.itemName)}"][data-type="${divider.itemType}"]`;
       if (divider.label) {
         const edge = divider.position === "above" ? "top" : "bottom";
         const marginSide = divider.position === "above" ? "margin-top" : "margin-bottom";
+        const transform = this.settings.labelUppercase ? "uppercase" : "none";
+        const letterSpacing = this.settings.labelUppercase ? "0.08em" : "normal";
+        const fontWeight = this.settings.labelBold ? "600" : "400";
+        const fontStyle = this.settings.labelItalic ? "italic" : "normal";
+        const effectiveLabelColor = divider.labelColor || this.settings.labelColor;
+        const effectiveLineColor = divider.lineColor || this.settings.dividerColor;
+        const labelStyle = (_a = divider.labelStyle) != null ? _a : "above";
+        if (labelStyle === "centered") {
+          const stripeOffset = Math.max(10, this.settings.labelFontSize);
+          const totalSpacing2 = stripeOffset + this.settings.labelFontSize / 2 + 4;
+          return `
+                        /* --- Centered labeled divider for ${divider.itemType} "${divider.itemName}" --- */
+                        ${selectorBase} {
+                            position: relative;
+                            ${marginSide}: ${totalSpacing2}px;
+                        }
+
+                        ${selectorBase}::after {
+                            content: '';
+                            position: absolute;
+                            ${edge}: -${stripeOffset}px;
+                            left: 0;
+                            right: 0;
+                            width: 100%;
+                            height: ${this.settings.dividerThickness}px;
+                            background-color: ${effectiveLineColor};
+                            border-radius: ${this.settings.dividerThickness / 2}px;
+                            opacity: 0.7;
+                            pointer-events: none;
+                            z-index: 1;
+                        }
+
+                        ${selectorBase}::before {
+                            content: "${escapeForCss(divider.label)}";
+                            position: absolute;
+                            ${edge}: -${stripeOffset + this.settings.labelFontSize / 2}px;
+                            left: 50%;
+                            transform: translateX(-50%);
+                            color: ${effectiveLabelColor};
+                            font-size: ${this.settings.labelFontSize}px;
+                            font-weight: ${fontWeight};
+                            font-style: ${fontStyle};
+                            text-transform: ${transform};
+                            letter-spacing: ${letterSpacing};
+                            line-height: 1;
+                            padding: 0 8px;
+                            background-color: var(--background-secondary, var(--background-primary, #1e1e1e));
+                            opacity: 0.95;
+                            pointer-events: none;
+                            white-space: nowrap;
+                            z-index: 2;
+                        }
+                    `;
+        }
         const lineOffset = 6;
         const labelOffset = lineOffset + this.settings.labelFontSize + 8;
         const totalSpacing = labelOffset + 6;
-        const transform = this.settings.labelUppercase ? "uppercase" : "none";
-        const letterSpacing = this.settings.labelUppercase ? "0.08em" : "normal";
         return `
-                    /* --- Labeled divider for ${divider.itemType} "${divider.itemName}" --- */
+                    /* --- Labeled divider (above-style) for ${divider.itemType} "${divider.itemName}" --- */
                     ${selectorBase} {
                         position: relative;
                         ${marginSide}: ${totalSpacing}px;
@@ -248,9 +324,10 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
                         right: 0;
                         width: 100%;
                         box-sizing: border-box;
-                        color: ${this.settings.labelColor};
+                        color: ${effectiveLabelColor};
                         font-size: ${this.settings.labelFontSize}px;
-                        font-weight: 600;
+                        font-weight: ${fontWeight};
+                        font-style: ${fontStyle};
                         text-transform: ${transform};
                         letter-spacing: ${letterSpacing};
                         line-height: 1.2;
@@ -267,7 +344,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
                         right: 0;
                         width: 100%;
                         height: ${this.settings.dividerThickness}px;
-                        background-color: ${this.settings.dividerColor};
+                        background-color: ${effectiveLineColor};
                         border-radius: ${this.settings.dividerThickness / 2}px;
                         opacity: 0.7;
                         pointer-events: none;
@@ -414,6 +491,18 @@ var FilesDividersSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian.Setting(containerEl).setName("Bold labels").setDesc("Render label text in bold weight").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.labelBold).onChange(async (value) => {
+        this.plugin.settings.labelBold = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Italic labels").setDesc("Render label text in italics").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.labelItalic).onChange(async (value) => {
+        this.plugin.settings.labelItalic = value;
+        await this.plugin.saveSettings();
+      })
+    );
     containerEl.createEl("h3", { text: "How to use" });
     containerEl.createEl("p", {
       text: 'Right-click any file or folder in the file explorer. Pick "Add divider above/below" for a plain line, or "Add labeled divider above/below\u2026" to attach a section name. Labels render as small section-header text with a line beneath (or above, if positioned below).'
@@ -428,16 +517,29 @@ var FilesDividersSettingTab = class extends import_obsidian.PluginSettingTab {
       const folderDividers = this.plugin.settings.dividers.filter((d) => d.itemType === "folder");
       const fileDividers = this.plugin.settings.dividers.filter((d) => d.itemType === "file");
       const renderDividerRow = (divider, emoji) => {
+        var _a;
         const labelDisplay = divider.label ? `"${divider.label}"` : "(no label)";
-        const setting = new import_obsidian.Setting(containerEl).setName(`${emoji} ${divider.itemName}`).setDesc(`Divider ${divider.position} \u2014 ${labelDisplay}`);
+        const styleDisplay = divider.label ? ` \xB7 ${(_a = divider.labelStyle) != null ? _a : "above"}` : "";
+        const setting = new import_obsidian.Setting(containerEl).setName(`${emoji} ${divider.itemName}`).setDesc(`Divider ${divider.position} \u2014 ${labelDisplay}${styleDisplay}`);
         setting.addText(
           (text) => {
-            var _a;
-            return text.setPlaceholder("Section label (blank for plain line)").setValue((_a = divider.label) != null ? _a : "").onChange(async (value) => {
+            var _a2;
+            return text.setPlaceholder("Section label (blank for plain line)").setValue((_a2 = divider.label) != null ? _a2 : "").onChange(async (value) => {
               this.plugin.updateDividerLabel(divider.itemName, divider.itemType, divider.position, value);
             });
           }
         );
+        if (divider.label) {
+          setting.addDropdown(
+            (dropdown) => {
+              var _a2;
+              return dropdown.addOption("above", "Above").addOption("centered", "Centered \u2500x\u2500").setValue((_a2 = divider.labelStyle) != null ? _a2 : "above").onChange(async (value) => {
+                this.plugin.updateDividerStyle(divider.itemName, divider.itemType, divider.position, value);
+                this.display();
+              });
+            }
+          );
+        }
         setting.addButton(
           (button) => button.setButtonText("Remove").setWarning().onClick(async () => {
             const globalIndex = this.plugin.settings.dividers.indexOf(divider);
@@ -446,6 +548,52 @@ var FilesDividersSettingTab = class extends import_obsidian.PluginSettingTab {
             this.display();
           })
         );
+        const advancedRow = containerEl.createDiv();
+        advancedRow.style.display = "flex";
+        advancedRow.style.gap = "12px";
+        advancedRow.style.alignItems = "center";
+        advancedRow.style.fontSize = "12px";
+        advancedRow.style.opacity = "0.75";
+        advancedRow.style.marginBottom = "14px";
+        advancedRow.style.marginLeft = "24px";
+        const labelColorWrap = advancedRow.createDiv();
+        labelColorWrap.style.display = "flex";
+        labelColorWrap.style.alignItems = "center";
+        labelColorWrap.style.gap = "4px";
+        labelColorWrap.createSpan({ text: "Label color override:" });
+        const labelColorInput = labelColorWrap.createEl("input", { type: "color" });
+        labelColorInput.value = divider.labelColor || this.plugin.settings.labelColor;
+        labelColorInput.title = divider.labelColor ? "Override active \u2014 clear to use global" : "Using global color";
+        labelColorInput.addEventListener("change", async () => {
+          this.plugin.updateDividerColor(divider.itemName, divider.itemType, divider.position, "labelColor", labelColorInput.value);
+        });
+        const labelClearBtn = labelColorWrap.createEl("button", { text: "\xD7" });
+        labelClearBtn.title = "Clear override (use global label color)";
+        labelClearBtn.style.padding = "0 6px";
+        labelClearBtn.style.minHeight = "0";
+        labelClearBtn.addEventListener("click", async () => {
+          this.plugin.updateDividerColor(divider.itemName, divider.itemType, divider.position, "labelColor", null);
+          this.display();
+        });
+        const lineColorWrap = advancedRow.createDiv();
+        lineColorWrap.style.display = "flex";
+        lineColorWrap.style.alignItems = "center";
+        lineColorWrap.style.gap = "4px";
+        lineColorWrap.createSpan({ text: "Line color override:" });
+        const lineColorInput = lineColorWrap.createEl("input", { type: "color" });
+        lineColorInput.value = divider.lineColor || this.plugin.settings.dividerColor;
+        lineColorInput.title = divider.lineColor ? "Override active \u2014 clear to use global" : "Using global color";
+        lineColorInput.addEventListener("change", async () => {
+          this.plugin.updateDividerColor(divider.itemName, divider.itemType, divider.position, "lineColor", lineColorInput.value);
+        });
+        const lineClearBtn = lineColorWrap.createEl("button", { text: "\xD7" });
+        lineClearBtn.title = "Clear override (use global line color)";
+        lineClearBtn.style.padding = "0 6px";
+        lineClearBtn.style.minHeight = "0";
+        lineClearBtn.addEventListener("click", async () => {
+          this.plugin.updateDividerColor(divider.itemName, divider.itemType, divider.position, "lineColor", null);
+          this.display();
+        });
       };
       if (folderDividers.length > 0) {
         containerEl.createEl("h4", { text: "Folder Dividers" });
@@ -465,10 +613,12 @@ var FilesDividersSettingTab = class extends import_obsidian.PluginSettingTab {
   }
 };
 var LabelInputModal = class extends import_obsidian.Modal {
-  constructor(app, initialValue, callback) {
+  constructor(app, initialValue, initialStyle, callback) {
     super(app);
     this.settled = false;
     this.initialValue = initialValue;
+    this.initialStyle = initialStyle;
+    this.chosenStyle = initialStyle;
     this.callback = callback;
   }
   onOpen() {
@@ -476,7 +626,7 @@ var LabelInputModal = class extends import_obsidian.Modal {
     contentEl.empty();
     contentEl.createEl("h3", { text: "Section label" });
     contentEl.createEl("p", {
-      text: "Enter the text to display above the divider line. Leave blank to cancel.",
+      text: "Enter the section text. Leave blank to cancel.",
       cls: "setting-item-description"
     });
     const input = contentEl.createEl("input", { type: "text" });
@@ -484,14 +634,43 @@ var LabelInputModal = class extends import_obsidian.Modal {
     input.placeholder = "e.g. PROJECTS";
     input.style.width = "100%";
     input.style.marginBottom = "12px";
-    input.focus();
-    input.select();
+    const styleLabel = contentEl.createEl("div", { text: "Label style" });
+    styleLabel.style.fontWeight = "500";
+    styleLabel.style.marginBottom = "4px";
+    const styleRow = contentEl.createDiv();
+    styleRow.style.display = "flex";
+    styleRow.style.gap = "16px";
+    styleRow.style.marginBottom = "14px";
+    const makeRadio = (value, labelText, descText) => {
+      const wrap = styleRow.createEl("label");
+      wrap.style.display = "flex";
+      wrap.style.alignItems = "flex-start";
+      wrap.style.gap = "6px";
+      wrap.style.cursor = "pointer";
+      const radio = wrap.createEl("input", { type: "radio" });
+      radio.name = "labeled-divider-style";
+      radio.value = value;
+      radio.checked = this.chosenStyle === value;
+      radio.addEventListener("change", () => {
+        if (radio.checked) this.chosenStyle = value;
+      });
+      const labelWrap = wrap.createDiv();
+      const titleEl = labelWrap.createEl("div", { text: labelText });
+      titleEl.style.fontSize = "13px";
+      const descEl = labelWrap.createEl("div", { text: descText });
+      descEl.style.fontSize = "11px";
+      descEl.style.opacity = "0.7";
+    };
+    makeRadio("above", "Above", "Text sits above the line");
+    makeRadio("centered", "Centered", "\u2500\u2500\u2500 TEXT \u2500\u2500\u2500 (line through label)");
     const buttonRow = contentEl.createDiv();
     buttonRow.style.display = "flex";
     buttonRow.style.justifyContent = "flex-end";
     buttonRow.style.gap = "8px";
     const cancelBtn = buttonRow.createEl("button", { text: "Cancel" });
     const submitBtn = buttonRow.createEl("button", { text: "Add divider", cls: "mod-cta" });
+    input.focus();
+    input.select();
     const submit = () => {
       const value = input.value.trim();
       if (!value) {
@@ -519,7 +698,7 @@ var LabelInputModal = class extends import_obsidian.Modal {
   }
   onClose() {
     if (!this.settled) {
-      this.callback(null);
+      this.callback(null, this.chosenStyle);
       this.settled = true;
     }
     this.contentEl.empty();
@@ -527,6 +706,6 @@ var LabelInputModal = class extends import_obsidian.Modal {
   settle(value) {
     if (this.settled) return;
     this.settled = true;
-    this.callback(value);
+    this.callback(value, this.chosenStyle);
   }
 };

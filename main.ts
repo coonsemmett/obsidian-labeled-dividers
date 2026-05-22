@@ -17,19 +17,28 @@
 
 import { Plugin, Setting, PluginSettingTab, App, Notice, TFile, TFolder, Modal } from 'obsidian';
 
+type LabelStyle = 'above' | 'centered';
+
+interface DividerRecord {
+    itemName: string;
+    itemType: 'file' | 'folder';
+    position: 'above' | 'below';
+    style: 'line' | 'space' | 'gradient';
+    label?: string;
+    labelStyle?: LabelStyle;
+    labelColor?: string;
+    lineColor?: string;
+}
+
 interface FilesDividersSettings {
-    dividers: Array<{
-        itemName: string;
-        itemType: 'file' | 'folder';
-        position: 'above' | 'below';
-        style: 'line' | 'space' | 'gradient';
-        label?: string;
-    }>;
+    dividers: DividerRecord[];
     dividerColor: string;
     dividerThickness: number;
     labelColor: string;
     labelFontSize: number;
     labelUppercase: boolean;
+    labelBold: boolean;
+    labelItalic: boolean;
     enabled: boolean;
 }
 
@@ -40,6 +49,8 @@ const DEFAULT_SETTINGS: FilesDividersSettings = {
     labelColor: '#888888',
     labelFontSize: 11,
     labelUppercase: true,
+    labelBold: true,
+    labelItalic: false,
     enabled: true
 };
 
@@ -213,7 +224,7 @@ export default class FilesDividersPlugin extends Plugin {
         }
     }
 
-    addDividerToItem(itemName: string, itemType: 'file' | 'folder', position: 'above' | 'below', label?: string) {
+    addDividerToItem(itemName: string, itemType: 'file' | 'folder', position: 'above' | 'below', label?: string, labelStyle?: LabelStyle) {
         const exists = this.settings.dividers.find(
             d => d.itemName === itemName && d.itemType === itemType && d.position === position
         );
@@ -223,7 +234,7 @@ export default class FilesDividersPlugin extends Plugin {
             return;
         }
 
-        const divider: FilesDividersSettings['dividers'][number] = {
+        const divider: DividerRecord = {
             itemName,
             itemType,
             position,
@@ -231,6 +242,7 @@ export default class FilesDividersPlugin extends Plugin {
         };
         if (label && label.trim()) {
             divider.label = label.trim();
+            divider.labelStyle = labelStyle ?? 'above';
         }
         this.settings.dividers.push(divider);
 
@@ -240,10 +252,32 @@ export default class FilesDividersPlugin extends Plugin {
     }
 
     promptAndAddLabeledDivider(itemName: string, itemType: 'file' | 'folder', position: 'above' | 'below') {
-        new LabelInputModal(this.app, '', (label) => {
+        new LabelInputModal(this.app, '', 'above', (label, labelStyle) => {
             if (label === null) return;
-            this.addDividerToItem(itemName, itemType, position, label);
+            this.addDividerToItem(itemName, itemType, position, label, labelStyle);
         }).open();
+    }
+
+    updateDividerStyle(itemName: string, itemType: 'file' | 'folder', position: 'above' | 'below', labelStyle: LabelStyle) {
+        const divider = this.settings.dividers.find(
+            d => d.itemName === itemName && d.itemType === itemType && d.position === position
+        );
+        if (!divider) return;
+        divider.labelStyle = labelStyle;
+        this.saveSettings();
+    }
+
+    updateDividerColor(itemName: string, itemType: 'file' | 'folder', position: 'above' | 'below', field: 'labelColor' | 'lineColor', value: string | null) {
+        const divider = this.settings.dividers.find(
+            d => d.itemName === itemName && d.itemType === itemType && d.position === position
+        );
+        if (!divider) return;
+        if (value === null || value === '') {
+            delete divider[field];
+        } else {
+            divider[field] = value;
+        }
+        this.saveSettings();
     }
 
     updateDividerLabel(itemName: string, itemType: 'file' | 'folder', position: 'above' | 'below', label: string) {
@@ -311,19 +345,72 @@ export default class FilesDividersPlugin extends Plugin {
             const selectorBase = `.${itemClass}-divider-${divider.position}[data-item="${escapeForCss(divider.itemName)}"][data-type="${divider.itemType}"]`;
 
             if (divider.label) {
-                // --- Labeled divider: ::before holds the label text, ::after holds the line.
-                //     Both pseudo-elements are absolutely positioned outside the folder so they
-                //     stack reliably (label further out, line nearer the folder edge).         ---
                 const edge = divider.position === 'above' ? 'top' : 'bottom';
                 const marginSide = divider.position === 'above' ? 'margin-top' : 'margin-bottom';
+                const transform = this.settings.labelUppercase ? 'uppercase' : 'none';
+                const letterSpacing = this.settings.labelUppercase ? '0.08em' : 'normal';
+                const fontWeight = this.settings.labelBold ? '600' : '400';
+                const fontStyle = this.settings.labelItalic ? 'italic' : 'normal';
+                const effectiveLabelColor = divider.labelColor || this.settings.labelColor;
+                const effectiveLineColor = divider.lineColor || this.settings.dividerColor;
+                const labelStyle: LabelStyle = divider.labelStyle ?? 'above';
+
+                if (labelStyle === 'centered') {
+                    // --- Centered: label text overlays the line. ::after = line (full width),
+                    //     ::before = text with solid background covering the line behind it. ---
+                    const stripeOffset = Math.max(10, this.settings.labelFontSize);
+                    const totalSpacing = stripeOffset + this.settings.labelFontSize / 2 + 4;
+                    return `
+                        /* --- Centered labeled divider for ${divider.itemType} "${divider.itemName}" --- */
+                        ${selectorBase} {
+                            position: relative;
+                            ${marginSide}: ${totalSpacing}px;
+                        }
+
+                        ${selectorBase}::after {
+                            content: '';
+                            position: absolute;
+                            ${edge}: -${stripeOffset}px;
+                            left: 0;
+                            right: 0;
+                            width: 100%;
+                            height: ${this.settings.dividerThickness}px;
+                            background-color: ${effectiveLineColor};
+                            border-radius: ${this.settings.dividerThickness / 2}px;
+                            opacity: 0.7;
+                            pointer-events: none;
+                            z-index: 1;
+                        }
+
+                        ${selectorBase}::before {
+                            content: "${escapeForCss(divider.label)}";
+                            position: absolute;
+                            ${edge}: -${stripeOffset + this.settings.labelFontSize / 2}px;
+                            left: 50%;
+                            transform: translateX(-50%);
+                            color: ${effectiveLabelColor};
+                            font-size: ${this.settings.labelFontSize}px;
+                            font-weight: ${fontWeight};
+                            font-style: ${fontStyle};
+                            text-transform: ${transform};
+                            letter-spacing: ${letterSpacing};
+                            line-height: 1;
+                            padding: 0 8px;
+                            background-color: var(--background-secondary, var(--background-primary, #1e1e1e));
+                            opacity: 0.95;
+                            pointer-events: none;
+                            white-space: nowrap;
+                            z-index: 2;
+                        }
+                    `;
+                }
+
+                // --- Above (default): label text above the line, both outside the folder ---
                 const lineOffset = 6;
                 const labelOffset = lineOffset + this.settings.labelFontSize + 8;
                 const totalSpacing = labelOffset + 6;
-                const transform = this.settings.labelUppercase ? 'uppercase' : 'none';
-                const letterSpacing = this.settings.labelUppercase ? '0.08em' : 'normal';
-
                 return `
-                    /* --- Labeled divider for ${divider.itemType} "${divider.itemName}" --- */
+                    /* --- Labeled divider (above-style) for ${divider.itemType} "${divider.itemName}" --- */
                     ${selectorBase} {
                         position: relative;
                         ${marginSide}: ${totalSpacing}px;
@@ -337,9 +424,10 @@ export default class FilesDividersPlugin extends Plugin {
                         right: 0;
                         width: 100%;
                         box-sizing: border-box;
-                        color: ${this.settings.labelColor};
+                        color: ${effectiveLabelColor};
                         font-size: ${this.settings.labelFontSize}px;
-                        font-weight: 600;
+                        font-weight: ${fontWeight};
+                        font-style: ${fontStyle};
                         text-transform: ${transform};
                         letter-spacing: ${letterSpacing};
                         line-height: 1.2;
@@ -356,7 +444,7 @@ export default class FilesDividersPlugin extends Plugin {
                         right: 0;
                         width: 100%;
                         height: ${this.settings.dividerThickness}px;
-                        background-color: ${this.settings.dividerColor};
+                        background-color: ${effectiveLineColor};
                         border-radius: ${this.settings.dividerThickness / 2}px;
                         opacity: 0.7;
                         pointer-events: none;
@@ -580,6 +668,30 @@ class FilesDividersSettingTab extends PluginSettingTab {
                     })
             );
 
+        new Setting(containerEl)
+            .setName('Bold labels')
+            .setDesc('Render label text in bold weight')
+            .addToggle(toggle =>
+                toggle
+                    .setValue(this.plugin.settings.labelBold)
+                    .onChange(async (value) => {
+                        this.plugin.settings.labelBold = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        new Setting(containerEl)
+            .setName('Italic labels')
+            .setDesc('Render label text in italics')
+            .addToggle(toggle =>
+                toggle
+                    .setValue(this.plugin.settings.labelItalic)
+                    .onChange(async (value) => {
+                        this.plugin.settings.labelItalic = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
         // --- Instructions ---
         containerEl.createEl('h3', { text: 'How to use' });
         containerEl.createEl('p', {
@@ -600,11 +712,12 @@ class FilesDividersSettingTab extends PluginSettingTab {
             const folderDividers = this.plugin.settings.dividers.filter(d => d.itemType === 'folder');
             const fileDividers = this.plugin.settings.dividers.filter(d => d.itemType === 'file');
 
-            const renderDividerRow = (divider: FilesDividersSettings['dividers'][number], emoji: string) => {
+            const renderDividerRow = (divider: DividerRecord, emoji: string) => {
                 const labelDisplay = divider.label ? `"${divider.label}"` : '(no label)';
+                const styleDisplay = divider.label ? ` · ${divider.labelStyle ?? 'above'}` : '';
                 const setting = new Setting(containerEl)
                     .setName(`${emoji} ${divider.itemName}`)
-                    .setDesc(`Divider ${divider.position} — ${labelDisplay}`);
+                    .setDesc(`Divider ${divider.position} — ${labelDisplay}${styleDisplay}`);
 
                 setting.addText(text =>
                     text
@@ -614,6 +727,19 @@ class FilesDividersSettingTab extends PluginSettingTab {
                             this.plugin.updateDividerLabel(divider.itemName, divider.itemType, divider.position, value);
                         })
                 );
+
+                if (divider.label) {
+                    setting.addDropdown(dropdown =>
+                        dropdown
+                            .addOption('above', 'Above')
+                            .addOption('centered', 'Centered ─x─')
+                            .setValue(divider.labelStyle ?? 'above')
+                            .onChange(async (value) => {
+                                this.plugin.updateDividerStyle(divider.itemName, divider.itemType, divider.position, value as LabelStyle);
+                                this.display();
+                            })
+                    );
+                }
 
                 setting.addButton(button =>
                     button
@@ -626,6 +752,56 @@ class FilesDividersSettingTab extends PluginSettingTab {
                             this.display();
                         })
                 );
+
+                // --- Per-divider color overrides (collapsed under a smaller "Advanced" line) ---
+                const advancedRow = containerEl.createDiv();
+                advancedRow.style.display = 'flex';
+                advancedRow.style.gap = '12px';
+                advancedRow.style.alignItems = 'center';
+                advancedRow.style.fontSize = '12px';
+                advancedRow.style.opacity = '0.75';
+                advancedRow.style.marginBottom = '14px';
+                advancedRow.style.marginLeft = '24px';
+
+                const labelColorWrap = advancedRow.createDiv();
+                labelColorWrap.style.display = 'flex';
+                labelColorWrap.style.alignItems = 'center';
+                labelColorWrap.style.gap = '4px';
+                labelColorWrap.createSpan({ text: 'Label color override:' });
+                const labelColorInput = labelColorWrap.createEl('input', { type: 'color' });
+                labelColorInput.value = divider.labelColor || this.plugin.settings.labelColor;
+                labelColorInput.title = divider.labelColor ? 'Override active — clear to use global' : 'Using global color';
+                labelColorInput.addEventListener('change', async () => {
+                    this.plugin.updateDividerColor(divider.itemName, divider.itemType, divider.position, 'labelColor', labelColorInput.value);
+                });
+                const labelClearBtn = labelColorWrap.createEl('button', { text: '×' });
+                labelClearBtn.title = 'Clear override (use global label color)';
+                labelClearBtn.style.padding = '0 6px';
+                labelClearBtn.style.minHeight = '0';
+                labelClearBtn.addEventListener('click', async () => {
+                    this.plugin.updateDividerColor(divider.itemName, divider.itemType, divider.position, 'labelColor', null);
+                    this.display();
+                });
+
+                const lineColorWrap = advancedRow.createDiv();
+                lineColorWrap.style.display = 'flex';
+                lineColorWrap.style.alignItems = 'center';
+                lineColorWrap.style.gap = '4px';
+                lineColorWrap.createSpan({ text: 'Line color override:' });
+                const lineColorInput = lineColorWrap.createEl('input', { type: 'color' });
+                lineColorInput.value = divider.lineColor || this.plugin.settings.dividerColor;
+                lineColorInput.title = divider.lineColor ? 'Override active — clear to use global' : 'Using global color';
+                lineColorInput.addEventListener('change', async () => {
+                    this.plugin.updateDividerColor(divider.itemName, divider.itemType, divider.position, 'lineColor', lineColorInput.value);
+                });
+                const lineClearBtn = lineColorWrap.createEl('button', { text: '×' });
+                lineClearBtn.title = 'Clear override (use global line color)';
+                lineClearBtn.style.padding = '0 6px';
+                lineClearBtn.style.minHeight = '0';
+                lineClearBtn.addEventListener('click', async () => {
+                    this.plugin.updateDividerColor(divider.itemName, divider.itemType, divider.position, 'lineColor', null);
+                    this.display();
+                });
             };
 
             if (folderDividers.length > 0) {
@@ -654,17 +830,21 @@ class FilesDividersSettingTab extends PluginSettingTab {
 }
 
 /**
- * Modal that prompts the user for a label string when creating a labeled divider.
- * Returns the entered label (or null on cancel) via callback.
+ * Modal that prompts the user for a label string + label style.
+ * Calls back with (label, labelStyle); label is null if the user cancelled or left it blank.
  */
 class LabelInputModal extends Modal {
     private initialValue: string;
-    private callback: (label: string | null) => void;
+    private initialStyle: LabelStyle;
+    private callback: (label: string | null, labelStyle: LabelStyle) => void;
     private settled: boolean = false;
+    private chosenStyle: LabelStyle;
 
-    constructor(app: App, initialValue: string, callback: (label: string | null) => void) {
+    constructor(app: App, initialValue: string, initialStyle: LabelStyle, callback: (label: string | null, labelStyle: LabelStyle) => void) {
         super(app);
         this.initialValue = initialValue;
+        this.initialStyle = initialStyle;
+        this.chosenStyle = initialStyle;
         this.callback = callback;
     }
 
@@ -673,7 +853,7 @@ class LabelInputModal extends Modal {
         contentEl.empty();
         contentEl.createEl('h3', { text: 'Section label' });
         contentEl.createEl('p', {
-            text: 'Enter the text to display above the divider line. Leave blank to cancel.',
+            text: 'Enter the section text. Leave blank to cancel.',
             cls: 'setting-item-description'
         });
 
@@ -682,8 +862,42 @@ class LabelInputModal extends Modal {
         input.placeholder = 'e.g. PROJECTS';
         input.style.width = '100%';
         input.style.marginBottom = '12px';
-        input.focus();
-        input.select();
+
+        // --- Style picker ---
+        const styleLabel = contentEl.createEl('div', { text: 'Label style' });
+        styleLabel.style.fontWeight = '500';
+        styleLabel.style.marginBottom = '4px';
+
+        const styleRow = contentEl.createDiv();
+        styleRow.style.display = 'flex';
+        styleRow.style.gap = '16px';
+        styleRow.style.marginBottom = '14px';
+
+        const makeRadio = (value: LabelStyle, labelText: string, descText: string) => {
+            const wrap = styleRow.createEl('label');
+            wrap.style.display = 'flex';
+            wrap.style.alignItems = 'flex-start';
+            wrap.style.gap = '6px';
+            wrap.style.cursor = 'pointer';
+
+            const radio = wrap.createEl('input', { type: 'radio' });
+            radio.name = 'labeled-divider-style';
+            radio.value = value;
+            radio.checked = this.chosenStyle === value;
+            radio.addEventListener('change', () => {
+                if (radio.checked) this.chosenStyle = value;
+            });
+
+            const labelWrap = wrap.createDiv();
+            const titleEl = labelWrap.createEl('div', { text: labelText });
+            titleEl.style.fontSize = '13px';
+            const descEl = labelWrap.createEl('div', { text: descText });
+            descEl.style.fontSize = '11px';
+            descEl.style.opacity = '0.7';
+        };
+
+        makeRadio('above', 'Above', 'Text sits above the line');
+        makeRadio('centered', 'Centered', '─── TEXT ─── (line through label)');
 
         const buttonRow = contentEl.createDiv();
         buttonRow.style.display = 'flex';
@@ -692,6 +906,9 @@ class LabelInputModal extends Modal {
 
         const cancelBtn = buttonRow.createEl('button', { text: 'Cancel' });
         const submitBtn = buttonRow.createEl('button', { text: 'Add divider', cls: 'mod-cta' });
+
+        input.focus();
+        input.select();
 
         const submit = () => {
             const value = input.value.trim();
@@ -723,7 +940,7 @@ class LabelInputModal extends Modal {
 
     onClose() {
         if (!this.settled) {
-            this.callback(null);
+            this.callback(null, this.chosenStyle);
             this.settled = true;
         }
         this.contentEl.empty();
@@ -732,6 +949,6 @@ class LabelInputModal extends Modal {
     private settle(value: string | null) {
         if (this.settled) return;
         this.settled = true;
-        this.callback(value);
+        this.callback(value, this.chosenStyle);
     }
 }
