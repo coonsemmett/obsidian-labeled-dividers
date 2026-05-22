@@ -226,17 +226,24 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
       const itemClass = divider.itemType === "folder" ? "nav-folder" : "nav-file";
       const selectorBase = `.${itemClass}-divider-${divider.position}[data-item="${escapeForCss(divider.itemName)}"][data-type="${divider.itemType}"]`;
       if (divider.label) {
-        const borderEdge = divider.position === "above" ? "bottom" : "top";
-        const padEdge = divider.position === "above" ? "padding-bottom" : "padding-top";
-        const offsetEdge = divider.position === "above" ? "top" : "bottom";
-        const verticalOffset = this.settings.labelFontSize + 10;
+        const edge = divider.position === "above" ? "top" : "bottom";
+        const marginSide = divider.position === "above" ? "margin-top" : "margin-bottom";
+        const lineOffset = 6;
+        const labelOffset = lineOffset + this.settings.labelFontSize + 8;
+        const totalSpacing = labelOffset + 6;
         const transform = this.settings.labelUppercase ? "uppercase" : "none";
-        const letterSpacing = this.settings.labelUppercase ? "0.06em" : "normal";
+        const letterSpacing = this.settings.labelUppercase ? "0.08em" : "normal";
         return `
                     /* --- Labeled divider for ${divider.itemType} "${divider.itemName}" --- */
-                    ${selectorBase}::${pseudoElement} {
+                    ${selectorBase} {
+                        position: relative;
+                        ${marginSide}: ${totalSpacing}px;
+                    }
+
+                    ${selectorBase}::before {
                         content: "${escapeForCss(divider.label)}";
                         position: absolute;
+                        ${edge}: -${labelOffset}px;
                         left: 0;
                         right: 0;
                         width: 100%;
@@ -247,17 +254,23 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
                         text-transform: ${transform};
                         letter-spacing: ${letterSpacing};
                         line-height: 1.2;
-                        padding: 2px 6px 2px 6px;
-                        ${padEdge}: 4px;
-                        border-${borderEdge}: ${this.settings.dividerThickness}px solid ${this.settings.dividerColor};
-                        opacity: 0.85;
-                        ${offsetEdge}: -${verticalOffset}px;
+                        padding: 0 6px;
+                        opacity: 0.95;
                         pointer-events: none;
                     }
 
-                    ${selectorBase} {
-                        position: relative;
-                        ${divider.position === "above" ? `margin-top: ${verticalOffset + 4}px;` : `margin-bottom: ${verticalOffset + 4}px;`}
+                    ${selectorBase}::after {
+                        content: '';
+                        position: absolute;
+                        ${edge}: -${lineOffset}px;
+                        left: 0;
+                        right: 0;
+                        width: 100%;
+                        height: ${this.settings.dividerThickness}px;
+                        background-color: ${this.settings.dividerColor};
+                        border-radius: ${this.settings.dividerThickness / 2}px;
+                        opacity: 0.7;
+                        pointer-events: none;
                     }
                 `;
       }
