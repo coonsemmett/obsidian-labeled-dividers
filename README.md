@@ -1,89 +1,87 @@
-# Obsidian Files Divider Plugin
+# Labeled Dividers
 
-A plugin that adds visual dividers between files and folders in the file explorer to help organize your notes
+An Obsidian plugin that adds visual dividers — **with optional section labels** — between files and folders in the file explorer.
+
+> Fork of [rqinix/Obsidian-Files-Divider](https://github.com/rqinix/Obsidian-Files-Divider). Adds the ability to attach a section name above the divider line so the file explorer can be visually broken into named sections.
+
+## What's new in this fork
+
+- **Labeled dividers** — right-click → "Add labeled divider above…" opens a popup to enter section text
+- **Label styling** — color, font size, optional UPPERCASE rendering
+- **Edit labels later** — in-place text input in the settings tab
+- Original plain divider behavior is preserved.
 
 ## Usage
 
-### Adding Dividers
+### Adding dividers
 
-1. **Right-click/press Method** - Right-click or press on any folder or file in the file explorer and select "Add divider above" or "Add divider below"
-2. **Settings Method** - Open plugin settings to manage all dividers manually
+Right-click any file or folder in the file explorer:
 
-### Managing Dividers
+- **Add divider above / below** — plain horizontal line
+- **Add labeled divider above… / below…** — opens a prompt for the section text
 
-- Open Settings 👉 Community Plugins 👉 Files Divider
-- View all current dividers
-- Remove unwanted dividers
-- Customize divider appearance (color, thickness)
-- Use the command palette to toggle dividers on/off or clear all dividers
+### Managing dividers
 
-## Example
+Settings → Community Plugins → Labeled Dividers
+- Edit any label inline
+- Remove individual dividers
+- Clear all dividers
+
+### Example
 
 ```
-📁Academic
----          👈 Divider added above 📁Animals
-📁Animals
----          👈 Divider added below 📁Animals
-📁Science
-📁Technology
-📁Engineering
-📁Mathematics
----          👈 Divider added below 📁Mathematics
-📁Foo
-📄Start Here.md
----          👈 Divider added above 📄TODO.md
-📄TODO.md
+📁 Academic
+─── PROJECTS ─────────         👈 labeled divider above 📁 Animals
+📁 Animals
+📁 Science
+─── REFERENCE ───────          👈 labeled divider above 📁 Engineering
+📁 Engineering
+📁 Mathematics
+───                            👈 plain divider above 📄 TODO.md
+📄 TODO.md
 ```
-
-## Toggle Dividers
-
-![Toggle](docs/toggle.png)
 
 ## Settings
 
-- **Divider Color** - Choose the color of divider lines
-- **Divider Thickness** - Adjust line thickness (1-5px)
-- **Divider Management** - View and remove existing dividers
-
-![settings](docs/settings.png)
+| Setting | What it does |
+|---------|--------------|
+| Divider color | Color of the divider line |
+| Divider thickness | Line thickness (1–5 px) |
+| Label color | Color of section-label text |
+| Label font size | 8–18 px |
+| Uppercase labels | Render labels UPPERCASE with subtle letter-spacing |
 
 ## Commands
 
-- Toggle folder dividers
-- Clear all folder dividers
+- Toggle dividers on/off
+- Clear all dividers
 
-Access via Command Palette (Ctrl/Cmd + P)
+## Installation (BRAT)
 
-## Installation
+1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat) if you don't have it
+2. BRAT → "Add Beta Plugin"
+3. Paste the repo URL of this fork
+4. Enable in Community Plugins
 
-### Manual Installation
+## Manual installation
 
-1. Download the latest release files (`main.js`, `manifest.json`)
-2. Copy them to `YourVault/.obsidian/plugins/files-dividers/`
-3. Reload Obsidian
-4. Enable the plugin in Settings → Community Plugins
+1. Build the plugin (`npm install && npm run build`)
+2. Copy `main.js` and `manifest.json` to `YourVault/.obsidian/plugins/labeled-dividers/`
+3. Reload Obsidian and enable in Community Plugins
 
-### Development Setup
+## Development
 
 ```bash
-# Clone to your plugins folder
-cd YourVault/.obsidian/plugins/
-git clone https://github.com/rqinix/Obsidian-Files-Divider obsidian-files-divider
-
-# Install dependencies
-cd obsidian-files-divider
+git clone <this fork>
+cd obsidian-labeled-dividers
 npm install
-
-# Build the plugin
-npm run build
-
-# Or run in development mode
-npm run dev
+npm run build   # production build
+npm run dev     # watch mode
 ```
 
-## Support and Contributing
+## Credit
 
-If you encounter issues or have feature requests or want to improve this, open an issue or pull request
+Original plugin and architecture by [rqinix](https://github.com/rqinix). This fork adds labeled-divider support. Licensed MIT per the original.
 
 ## License
 

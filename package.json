@@ -1,15 +1,15 @@
 {
-	"name": "files-divider",
-	"version": "1.0.1",
-	"description": "An Obsidian plugin that adds dividers to files and folders.",
+	"name": "labeled-dividers",
+	"version": "1.1.0",
+	"description": "Obsidian plugin: visual dividers with optional section labels between files and folders. Fork of rqinix/Obsidian-Files-Divider.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json"
 	},
-	"keywords": ["obsidian", "obsidian-plugin", "files-divider", "divider", "folders", "organization"],
-	"author": "rqinix",
+	"keywords": ["obsidian", "obsidian-plugin", "labeled-dividers", "divider", "folders", "organization", "section-headers"],
+	"author": "Hugh (fork of rqinix)",
 	"license": "MIT",
 	"devDependencies": {
 		"@types/node": "^16.11.6",

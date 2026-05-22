@@ -15,7 +15,7 @@
  | 
  */
 
-import { Plugin, Setting, PluginSettingTab, App, Notice, TFile, TFolder } from 'obsidian';
+import { Plugin, Setting, PluginSettingTab, App, Notice, TFile, TFolder, Modal } from 'obsidian';
 
 interface FilesDividersSettings {
     dividers: Array<{
@@ -23,9 +23,13 @@ interface FilesDividersSettings {
         itemType: 'file' | 'folder';
         position: 'above' | 'below';
         style: 'line' | 'space' | 'gradient';
+        label?: string;
     }>;
     dividerColor: string;
     dividerThickness: number;
+    labelColor: string;
+    labelFontSize: number;
+    labelUppercase: boolean;
     enabled: boolean;
 }
 
@@ -33,8 +37,19 @@ const DEFAULT_SETTINGS: FilesDividersSettings = {
     dividers: [],
     dividerColor: '#484848',
     dividerThickness: 1,
+    labelColor: '#888888',
+    labelFontSize: 11,
+    labelUppercase: true,
     enabled: true
 };
+
+function escapeForCss(str: string): string {
+    return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\A ');
+}
+
+function dividerKey(itemName: string, itemType: string, position: string): string {
+    return `${itemType}::${position}::${itemName}`;
+}
 
 export default class FilesDividersPlugin extends Plugin {
     settings: FilesDividersSettings;
@@ -107,7 +122,9 @@ export default class FilesDividersPlugin extends Plugin {
                     if (existingAbove) {
                         menu.addItem((item) => {
                             item
-                                .setTitle('Remove divider above')
+                                .setTitle(existingAbove.label
+                                    ? `Remove labeled divider above ("${existingAbove.label}")`
+                                    : 'Remove divider above')
                                 .setIcon('x')
                                 .onClick(() => {
                                     this.removeDividerFromItem(itemName, itemType, 'above');
@@ -122,13 +139,23 @@ export default class FilesDividersPlugin extends Plugin {
                                     this.addDividerToItem(itemName, itemType, 'above');
                                 });
                         });
+                        menu.addItem((item) => {
+                            item
+                                .setTitle('Add labeled divider above…')
+                                .setIcon('text-cursor-input')
+                                .onClick(() => {
+                                    this.promptAndAddLabeledDivider(itemName, itemType, 'above');
+                                });
+                        });
                     }
-                    
+
                     // --- Add/Remove divider below ---
                     if (existingBelow) {
                         menu.addItem((item) => {
                             item
-                                .setTitle('Remove divider below')
+                                .setTitle(existingBelow.label
+                                    ? `Remove labeled divider below ("${existingBelow.label}")`
+                                    : 'Remove divider below')
                                 .setIcon('x')
                                 .onClick(() => {
                                     this.removeDividerFromItem(itemName, itemType, 'below');
@@ -141,6 +168,14 @@ export default class FilesDividersPlugin extends Plugin {
                                 .setIcon('minus')
                                 .onClick(() => {
                                     this.addDividerToItem(itemName, itemType, 'below');
+                                });
+                        });
+                        menu.addItem((item) => {
+                            item
+                                .setTitle('Add labeled divider below…')
+                                .setIcon('text-cursor-input')
+                                .onClick(() => {
+                                    this.promptAndAddLabeledDivider(itemName, itemType, 'below');
                                 });
                         });
                     }
@@ -178,25 +213,51 @@ export default class FilesDividersPlugin extends Plugin {
         }
     }
 
-    addDividerToItem(itemName: string, itemType: 'file' | 'folder', position: 'above' | 'below') {
+    addDividerToItem(itemName: string, itemType: 'file' | 'folder', position: 'above' | 'below', label?: string) {
         const exists = this.settings.dividers.find(
             d => d.itemName === itemName && d.itemType === itemType && d.position === position
         );
-        
+
         if (exists) {
             new Notice(`Divider already exists ${position} ${itemType} "${itemName}"`);
             return;
         }
 
-        this.settings.dividers.push({
+        const divider: FilesDividersSettings['dividers'][number] = {
             itemName,
             itemType,
             position,
             style: 'line'
-        });
+        };
+        if (label && label.trim()) {
+            divider.label = label.trim();
+        }
+        this.settings.dividers.push(divider);
 
         this.saveSettings();
-        new Notice(`Added divider ${position} ${itemType} "${itemName}"`);
+        const labelPart = divider.label ? ` ("${divider.label}")` : '';
+        new Notice(`Added divider${labelPart} ${position} ${itemType} "${itemName}"`);
+    }
+
+    promptAndAddLabeledDivider(itemName: string, itemType: 'file' | 'folder', position: 'above' | 'below') {
+        new LabelInputModal(this.app, '', (label) => {
+            if (label === null) return;
+            this.addDividerToItem(itemName, itemType, position, label);
+        }).open();
+    }
+
+    updateDividerLabel(itemName: string, itemType: 'file' | 'folder', position: 'above' | 'below', label: string) {
+        const divider = this.settings.dividers.find(
+            d => d.itemName === itemName && d.itemType === itemType && d.position === position
+        );
+        if (!divider) return;
+        const trimmed = label.trim();
+        if (trimmed) {
+            divider.label = trimmed;
+        } else {
+            delete divider.label;
+        }
+        this.saveSettings();
     }
 
     removeDividerFromItem(itemName: string, itemType: 'file' | 'folder', position: 'above' | 'below') {
@@ -247,10 +308,51 @@ export default class FilesDividersPlugin extends Plugin {
         const cssRules = this.settings.dividers.map(divider => {
             const pseudoElement = divider.position === 'above' ? 'before' : 'after';
             const itemClass = divider.itemType === 'folder' ? 'nav-folder' : 'nav-file';
-            
+            const selectorBase = `.${itemClass}-divider-${divider.position}[data-item="${escapeForCss(divider.itemName)}"][data-type="${divider.itemType}"]`;
+
+            if (divider.label) {
+                // --- Labeled divider: text + border line on adjacent edge ---
+                const borderEdge = divider.position === 'above' ? 'bottom' : 'top';
+                const padEdge = divider.position === 'above' ? 'padding-bottom' : 'padding-top';
+                const offsetEdge = divider.position === 'above' ? 'top' : 'bottom';
+                const verticalOffset = this.settings.labelFontSize + 10;
+                const transform = this.settings.labelUppercase ? 'uppercase' : 'none';
+                const letterSpacing = this.settings.labelUppercase ? '0.06em' : 'normal';
+
+                return `
+                    /* --- Labeled divider for ${divider.itemType} "${divider.itemName}" --- */
+                    ${selectorBase}::${pseudoElement} {
+                        content: "${escapeForCss(divider.label)}";
+                        position: absolute;
+                        left: 0;
+                        right: 0;
+                        width: 100%;
+                        box-sizing: border-box;
+                        color: ${this.settings.labelColor};
+                        font-size: ${this.settings.labelFontSize}px;
+                        font-weight: 600;
+                        text-transform: ${transform};
+                        letter-spacing: ${letterSpacing};
+                        line-height: 1.2;
+                        padding: 2px 6px 2px 6px;
+                        ${padEdge}: 4px;
+                        border-${borderEdge}: ${this.settings.dividerThickness}px solid ${this.settings.dividerColor};
+                        opacity: 0.85;
+                        ${offsetEdge}: -${verticalOffset}px;
+                        pointer-events: none;
+                    }
+
+                    ${selectorBase} {
+                        position: relative;
+                        ${divider.position === 'above' ? `margin-top: ${verticalOffset + 4}px;` : `margin-bottom: ${verticalOffset + 4}px;`}
+                    }
+                `;
+            }
+
+            // --- Plain divider: original line-only behavior ---
             return `
                 /* --- Divider styles for files and folders --- */
-                .${itemClass}-divider-${divider.position}[data-item="${divider.itemName}"][data-type="${divider.itemType}"]::${pseudoElement} {
+                ${selectorBase}::${pseudoElement} {
                     content: '';
                     position: absolute;
                     left: 0;
@@ -260,14 +362,14 @@ export default class FilesDividersPlugin extends Plugin {
                     background-color: ${this.settings.dividerColor};
                     border-radius: ${this.settings.dividerThickness / 2}px;
                     opacity: 0.6;
-                    ${divider.position === 'above' ? 
-                        `top: -${8 + this.settings.dividerThickness}px;` : 
+                    ${divider.position === 'above' ?
+                        `top: -${8 + this.settings.dividerThickness}px;` :
                         `bottom: -${8 + this.settings.dividerThickness}px;`
                     }
                 }
 
                 /* --- Add spacing and position to dividers --- */
-                .${itemClass}-divider-${divider.position}[data-item="${divider.itemName}"][data-type="${divider.itemType}"] {
+                ${selectorBase} {
                     position: relative;
                     ${divider.position === 'above' ? 'margin-top: 16px;' : 'margin-bottom: 16px;'}
                 }
@@ -379,7 +481,7 @@ class FilesDividersSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        containerEl.createEl('h2', { text: 'Files Dividers Settings' });
+        containerEl.createEl('h2', { text: 'Labeled Dividers' });
 
         // --- Enable/disable toggle ---
         new Setting(containerEl)
@@ -422,10 +524,51 @@ class FilesDividersSettingTab extends PluginSettingTab {
                     })
             );
 
+        // --- Label section ---
+        containerEl.createEl('h3', { text: 'Label styling' });
+
+        new Setting(containerEl)
+            .setName('Label color')
+            .setDesc('Color of section-label text on labeled dividers')
+            .addColorPicker(color =>
+                color
+                    .setValue(this.plugin.settings.labelColor)
+                    .onChange(async (value) => {
+                        this.plugin.settings.labelColor = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        new Setting(containerEl)
+            .setName('Label font size')
+            .setDesc('Size of label text in pixels')
+            .addSlider(slider =>
+                slider
+                    .setLimits(8, 18, 1)
+                    .setValue(this.plugin.settings.labelFontSize)
+                    .setDynamicTooltip()
+                    .onChange(async (value) => {
+                        this.plugin.settings.labelFontSize = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        new Setting(containerEl)
+            .setName('Uppercase labels')
+            .setDesc('Render labels in UPPERCASE with slight letter-spacing (section-header style)')
+            .addToggle(toggle =>
+                toggle
+                    .setValue(this.plugin.settings.labelUppercase)
+                    .onChange(async (value) => {
+                        this.plugin.settings.labelUppercase = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
         // --- Instructions ---
         containerEl.createEl('h3', { text: 'How to use' });
-        containerEl.createEl('p', { 
-            text: 'Right-click or Press on any file or folder in the file explorer to add or remove dividers above or below it. Dividers appear as subtle horizontal lines to organize your vault structure.' 
+        containerEl.createEl('p', {
+            text: 'Right-click any file or folder in the file explorer. Pick "Add divider above/below" for a plain line, or "Add labeled divider above/below…" to attach a section name. Labels render as small section-header text with a line beneath (or above, if positioned below).'
         });
 
         // --- Current dividers list ---
@@ -442,44 +585,42 @@ class FilesDividersSettingTab extends PluginSettingTab {
             const folderDividers = this.plugin.settings.dividers.filter(d => d.itemType === 'folder');
             const fileDividers = this.plugin.settings.dividers.filter(d => d.itemType === 'file');
 
+            const renderDividerRow = (divider: FilesDividersSettings['dividers'][number], emoji: string) => {
+                const labelDisplay = divider.label ? `"${divider.label}"` : '(no label)';
+                const setting = new Setting(containerEl)
+                    .setName(`${emoji} ${divider.itemName}`)
+                    .setDesc(`Divider ${divider.position} — ${labelDisplay}`);
+
+                setting.addText(text =>
+                    text
+                        .setPlaceholder('Section label (blank for plain line)')
+                        .setValue(divider.label ?? '')
+                        .onChange(async (value) => {
+                            this.plugin.updateDividerLabel(divider.itemName, divider.itemType, divider.position, value);
+                        })
+                );
+
+                setting.addButton(button =>
+                    button
+                        .setButtonText('Remove')
+                        .setWarning()
+                        .onClick(async () => {
+                            const globalIndex = this.plugin.settings.dividers.indexOf(divider);
+                            this.plugin.settings.dividers.splice(globalIndex, 1);
+                            await this.plugin.saveSettings();
+                            this.display();
+                        })
+                );
+            };
+
             if (folderDividers.length > 0) {
                 containerEl.createEl('h4', { text: 'Folder Dividers' });
-                folderDividers.forEach((divider, index) => {
-                    new Setting(containerEl)
-                        .setName(`📁 ${divider.itemName}`)
-                        .setDesc(`Divider ${divider.position} the "${divider.itemName}" folder`)
-                        .addButton(button =>
-                            button
-                                .setButtonText('Remove')
-                                .setWarning()
-                                .onClick(async () => {
-                                    const globalIndex = this.plugin.settings.dividers.indexOf(divider);
-                                    this.plugin.settings.dividers.splice(globalIndex, 1);
-                                    await this.plugin.saveSettings();
-                                    this.display();
-                                })
-                        );
-                });
+                folderDividers.forEach(divider => renderDividerRow(divider, '📁'));
             }
 
             if (fileDividers.length > 0) {
                 containerEl.createEl('h4', { text: 'File Dividers' });
-                fileDividers.forEach((divider, index) => {
-                    new Setting(containerEl)
-                        .setName(`📄 ${divider.itemName}`)
-                        .setDesc(`Divider ${divider.position} the "${divider.itemName}" file`)
-                        .addButton(button =>
-                            button
-                                .setButtonText('Remove')
-                                .setWarning()
-                                .onClick(async () => {
-                                    const globalIndex = this.plugin.settings.dividers.indexOf(divider);
-                                    this.plugin.settings.dividers.splice(globalIndex, 1);
-                                    await this.plugin.saveSettings();
-                                    this.display();
-                                })
-                        );
-                });
+                fileDividers.forEach(divider => renderDividerRow(divider, '📄'));
             }
 
             // --- Clear all button ---
@@ -494,5 +635,88 @@ class FilesDividersSettingTab extends PluginSettingTab {
                         })
                 );
         }
+    }
+}
+
+/**
+ * Modal that prompts the user for a label string when creating a labeled divider.
+ * Returns the entered label (or null on cancel) via callback.
+ */
+class LabelInputModal extends Modal {
+    private initialValue: string;
+    private callback: (label: string | null) => void;
+    private settled: boolean = false;
+
+    constructor(app: App, initialValue: string, callback: (label: string | null) => void) {
+        super(app);
+        this.initialValue = initialValue;
+        this.callback = callback;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.createEl('h3', { text: 'Section label' });
+        contentEl.createEl('p', {
+            text: 'Enter the text to display above the divider line. Leave blank to cancel.',
+            cls: 'setting-item-description'
+        });
+
+        const input = contentEl.createEl('input', { type: 'text' });
+        input.value = this.initialValue;
+        input.placeholder = 'e.g. PROJECTS';
+        input.style.width = '100%';
+        input.style.marginBottom = '12px';
+        input.focus();
+        input.select();
+
+        const buttonRow = contentEl.createDiv();
+        buttonRow.style.display = 'flex';
+        buttonRow.style.justifyContent = 'flex-end';
+        buttonRow.style.gap = '8px';
+
+        const cancelBtn = buttonRow.createEl('button', { text: 'Cancel' });
+        const submitBtn = buttonRow.createEl('button', { text: 'Add divider', cls: 'mod-cta' });
+
+        const submit = () => {
+            const value = input.value.trim();
+            if (!value) {
+                this.settle(null);
+            } else {
+                this.settle(value);
+            }
+            this.close();
+        };
+
+        const cancel = () => {
+            this.settle(null);
+            this.close();
+        };
+
+        submitBtn.addEventListener('click', submit);
+        cancelBtn.addEventListener('click', cancel);
+        input.addEventListener('keydown', (evt) => {
+            if (evt.key === 'Enter') {
+                evt.preventDefault();
+                submit();
+            } else if (evt.key === 'Escape') {
+                evt.preventDefault();
+                cancel();
+            }
+        });
+    }
+
+    onClose() {
+        if (!this.settled) {
+            this.callback(null);
+            this.settled = true;
+        }
+        this.contentEl.empty();
+    }
+
+    private settle(value: string | null) {
+        if (this.settled) return;
+        this.settled = true;
+        this.callback(value);
     }
 }
