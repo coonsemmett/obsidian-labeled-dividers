@@ -496,7 +496,7 @@ export default class FilesDividersPlugin extends Plugin {
                     height: ${this.settings.dividerThickness}px;
                     background-color: ${this.settings.dividerColor};
                     border-radius: ${this.settings.dividerThickness / 2}px;
-                    opacity: 0.6;
+                    opacity: 0.7;
                     ${divider.position === 'above' ?
                         `top: -${8 + this.settings.dividerThickness}px;` :
                         `bottom: -${8 + this.settings.dividerThickness}px;`
