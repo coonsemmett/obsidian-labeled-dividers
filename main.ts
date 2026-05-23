@@ -129,8 +129,18 @@ export default class FilesDividersPlugin extends Plugin {
                         d.position === 'below'
                     );
                     
-                    // --- Add/Remove divider above ---
+                    // --- Add/Edit/Remove divider above ---
                     if (existingAbove) {
+                        menu.addItem((item) => {
+                            item
+                                .setTitle(existingAbove.label
+                                    ? `Edit label above ("${existingAbove.label}")…`
+                                    : 'Add label to divider above…')
+                                .setIcon('text-cursor-input')
+                                .onClick(() => {
+                                    this.promptAndEditLabel(existingAbove);
+                                });
+                        });
                         menu.addItem((item) => {
                             item
                                 .setTitle(existingAbove.label
@@ -160,8 +170,18 @@ export default class FilesDividersPlugin extends Plugin {
                         });
                     }
 
-                    // --- Add/Remove divider below ---
+                    // --- Add/Edit/Remove divider below ---
                     if (existingBelow) {
+                        menu.addItem((item) => {
+                            item
+                                .setTitle(existingBelow.label
+                                    ? `Edit label below ("${existingBelow.label}")…`
+                                    : 'Add label to divider below…')
+                                .setIcon('text-cursor-input')
+                                .onClick(() => {
+                                    this.promptAndEditLabel(existingBelow);
+                                });
+                        });
                         menu.addItem((item) => {
                             item
                                 .setTitle(existingBelow.label
@@ -255,6 +275,18 @@ export default class FilesDividersPlugin extends Plugin {
         new LabelInputModal(this.app, '', 'above', (label, labelStyle) => {
             if (label === null) return;
             this.addDividerToItem(itemName, itemType, position, label, labelStyle);
+        }).open();
+    }
+
+    promptAndEditLabel(divider: DividerRecord) {
+        const currentLabel = divider.label ?? '';
+        const currentStyle: LabelStyle = divider.labelStyle ?? 'above';
+        new LabelInputModal(this.app, currentLabel, currentStyle, (label, labelStyle) => {
+            if (label === null) return;
+            divider.label = label;
+            divider.labelStyle = labelStyle;
+            this.saveSettings();
+            new Notice(`Updated label to "${label}" (${labelStyle})`);
         }).open();
     }
 

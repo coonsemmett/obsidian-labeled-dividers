@@ -87,6 +87,11 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
           );
           if (existingAbove) {
             menu.addItem((item) => {
+              item.setTitle(existingAbove.label ? `Edit label above ("${existingAbove.label}")\u2026` : "Add label to divider above\u2026").setIcon("text-cursor-input").onClick(() => {
+                this.promptAndEditLabel(existingAbove);
+              });
+            });
+            menu.addItem((item) => {
               item.setTitle(existingAbove.label ? `Remove labeled divider above ("${existingAbove.label}")` : "Remove divider above").setIcon("x").onClick(() => {
                 this.removeDividerFromItem(itemName, itemType, "above");
               });
@@ -104,6 +109,11 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
             });
           }
           if (existingBelow) {
+            menu.addItem((item) => {
+              item.setTitle(existingBelow.label ? `Edit label below ("${existingBelow.label}")\u2026` : "Add label to divider below\u2026").setIcon("text-cursor-input").onClick(() => {
+                this.promptAndEditLabel(existingBelow);
+              });
+            });
             menu.addItem((item) => {
               item.setTitle(existingBelow.label ? `Remove labeled divider below ("${existingBelow.label}")` : "Remove divider below").setIcon("x").onClick(() => {
                 this.removeDividerFromItem(itemName, itemType, "below");
@@ -173,6 +183,18 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     new LabelInputModal(this.app, "", "above", (label, labelStyle) => {
       if (label === null) return;
       this.addDividerToItem(itemName, itemType, position, label, labelStyle);
+    }).open();
+  }
+  promptAndEditLabel(divider) {
+    var _a, _b;
+    const currentLabel = (_a = divider.label) != null ? _a : "";
+    const currentStyle = (_b = divider.labelStyle) != null ? _b : "above";
+    new LabelInputModal(this.app, currentLabel, currentStyle, (label, labelStyle) => {
+      if (label === null) return;
+      divider.label = label;
+      divider.labelStyle = labelStyle;
+      this.saveSettings();
+      new import_obsidian.Notice(`Updated label to "${label}" (${labelStyle})`);
     }).open();
   }
   updateDividerStyle(itemName, itemType, position, labelStyle) {
