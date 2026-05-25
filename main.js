@@ -328,11 +328,13 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
                         }
                     `;
         }
-        const lineOffset = 6;
-        const labelOffset = lineOffset + this.settings.labelFontSize + 8;
-        const totalSpacing = labelOffset + 6;
+        const innerOffset = 6;
+        const outerOffset = innerOffset + this.settings.labelFontSize + 8;
+        const totalSpacing = outerOffset + 6;
+        const labelEdgeOffset = divider.position === "above" ? outerOffset : innerOffset;
+        const lineEdgeOffset2 = divider.position === "above" ? innerOffset : outerOffset;
         return `
-                    /* --- Labeled divider (above-style) for ${divider.itemType} "${divider.itemName}" --- */
+                    /* --- Labeled divider (above-style) for ${divider.itemType} "${divider.itemName}" ${divider.position} --- */
                     ${selectorBase} {
                         position: relative;
                         ${marginSide}: ${totalSpacing}px;
@@ -341,7 +343,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
                     ${selectorBase}::before {
                         content: "${escapeForCss(divider.label)}";
                         position: absolute;
-                        ${edge}: -${labelOffset}px;
+                        ${edge}: -${labelEdgeOffset}px;
                         left: 0;
                         right: 0;
                         width: 100%;
@@ -356,12 +358,13 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
                         padding: 0 6px;
                         opacity: 0.95;
                         pointer-events: none;
+                        z-index: 2;
                     }
 
                     ${selectorBase}::after {
                         content: '';
                         position: absolute;
-                        ${edge}: -${lineOffset}px;
+                        ${edge}: -${lineEdgeOffset2}px;
                         left: 0;
                         right: 0;
                         width: 100%;
@@ -370,11 +373,13 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
                         border-radius: ${this.settings.dividerThickness / 2}px;
                         opacity: 0.7;
                         pointer-events: none;
+                        z-index: 2;
                     }
                 `;
       }
+      const lineEdgeOffset = 8 + this.settings.dividerThickness;
       return `
-                /* --- Divider styles for files and folders --- */
+                /* --- Plain divider for ${divider.itemType} "${divider.itemName}" ${divider.position} --- */
                 ${selectorBase}::${pseudoElement} {
                     content: '';
                     position: absolute;
@@ -385,7 +390,9 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
                     background-color: ${this.settings.dividerColor};
                     border-radius: ${this.settings.dividerThickness / 2}px;
                     opacity: 0.7;
-                    ${divider.position === "above" ? `top: -${8 + this.settings.dividerThickness}px;` : `bottom: -${8 + this.settings.dividerThickness}px;`}
+                    pointer-events: none;
+                    z-index: 2;
+                    ${divider.position === "above" ? `top: -${lineEdgeOffset}px;` : `bottom: -${lineEdgeOffset}px;`}
                 }
 
                 /* --- Add spacing and position to dividers --- */

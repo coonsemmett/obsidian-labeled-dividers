@@ -437,12 +437,20 @@ export default class FilesDividersPlugin extends Plugin {
                     `;
                 }
 
-                // --- Above (default): label text above the line, both outside the folder ---
-                const lineOffset = 6;
-                const labelOffset = lineOffset + this.settings.labelFontSize + 8;
-                const totalSpacing = labelOffset + 6;
+                // --- Above-style label layout ---
+                // Geometry differs between positions so labels stay "near" their anchor folder:
+                //   above: LABEL on the OUTER edge (far from folder), LINE on the INNER edge (close)
+                //          → reads top-down as: LABEL, line, FOLDER (label introduces folder)
+                //   below: LABEL on the INNER edge (close to folder), LINE on the OUTER edge (far)
+                //          → reads top-down as: FOLDER, label, line (label clings to folder, line is the boundary)
+                const innerOffset = 6;
+                const outerOffset = innerOffset + this.settings.labelFontSize + 8;
+                const totalSpacing = outerOffset + 6;
+                const labelEdgeOffset = divider.position === 'above' ? outerOffset : innerOffset;
+                const lineEdgeOffset = divider.position === 'above' ? innerOffset : outerOffset;
+
                 return `
-                    /* --- Labeled divider (above-style) for ${divider.itemType} "${divider.itemName}" --- */
+                    /* --- Labeled divider (above-style) for ${divider.itemType} "${divider.itemName}" ${divider.position} --- */
                     ${selectorBase} {
                         position: relative;
                         ${marginSide}: ${totalSpacing}px;
@@ -451,7 +459,7 @@ export default class FilesDividersPlugin extends Plugin {
                     ${selectorBase}::before {
                         content: "${escapeForCss(divider.label)}";
                         position: absolute;
-                        ${edge}: -${labelOffset}px;
+                        ${edge}: -${labelEdgeOffset}px;
                         left: 0;
                         right: 0;
                         width: 100%;
@@ -466,12 +474,13 @@ export default class FilesDividersPlugin extends Plugin {
                         padding: 0 6px;
                         opacity: 0.95;
                         pointer-events: none;
+                        z-index: 2;
                     }
 
                     ${selectorBase}::after {
                         content: '';
                         position: absolute;
-                        ${edge}: -${lineOffset}px;
+                        ${edge}: -${lineEdgeOffset}px;
                         left: 0;
                         right: 0;
                         width: 100%;
@@ -480,13 +489,17 @@ export default class FilesDividersPlugin extends Plugin {
                         border-radius: ${this.settings.dividerThickness / 2}px;
                         opacity: 0.7;
                         pointer-events: none;
+                        z-index: 2;
                     }
                 `;
             }
 
-            // --- Plain divider: original line-only behavior ---
+            // --- Plain divider: line-only ---
+            //     Pseudo-element gets explicit z-index so adjacent folder/file rows in themes
+            //     that paint backgrounds onto siblings can't obscure the line.
+            const lineEdgeOffset = 8 + this.settings.dividerThickness;
             return `
-                /* --- Divider styles for files and folders --- */
+                /* --- Plain divider for ${divider.itemType} "${divider.itemName}" ${divider.position} --- */
                 ${selectorBase}::${pseudoElement} {
                     content: '';
                     position: absolute;
@@ -497,9 +510,11 @@ export default class FilesDividersPlugin extends Plugin {
                     background-color: ${this.settings.dividerColor};
                     border-radius: ${this.settings.dividerThickness / 2}px;
                     opacity: 0.7;
+                    pointer-events: none;
+                    z-index: 2;
                     ${divider.position === 'above' ?
-                        `top: -${8 + this.settings.dividerThickness}px;` :
-                        `bottom: -${8 + this.settings.dividerThickness}px;`
+                        `top: -${lineEdgeOffset}px;` :
+                        `bottom: -${lineEdgeOffset}px;`
                     }
                 }
 
