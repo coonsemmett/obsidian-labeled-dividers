@@ -43,6 +43,10 @@ function escapeForCss(str) {
   return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\A ");
 }
 var FilesDividersPlugin = class extends import_obsidian.Plugin {
+  constructor() {
+    super(...arguments);
+    this.applyDebounce = null;
+  }
   async onload() {
     await this.loadSettings();
     this.addRibbonIcon("minus", "Toggle files dividers", () => {
@@ -63,13 +67,15 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
       }
     });
     this.addSettingTab(new FilesDividersSettingTab(this.app, this));
-    if (this.settings.enabled) {
-      this.applyDividers();
-    }
+    this.app.workspace.onLayoutReady(() => {
+      if (this.settings.enabled) {
+        this.applyDividers();
+      }
+    });
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         if (this.settings.enabled) {
-          setTimeout(() => this.applyDividers(), 100);
+          this.scheduleApply();
         }
       })
     );
@@ -143,7 +149,20 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     );
   }
   onunload() {
+    if (this.applyDebounce !== null) {
+      window.clearTimeout(this.applyDebounce);
+      this.applyDebounce = null;
+    }
     this.removeDividers();
+  }
+  scheduleApply() {
+    if (this.applyDebounce !== null) {
+      window.clearTimeout(this.applyDebounce);
+    }
+    this.applyDebounce = window.setTimeout(() => {
+      this.applyDebounce = null;
+      this.applyDividers();
+    }, 150);
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -408,9 +427,14 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     document.head.appendChild(styleElement);
     this.addDividerClasses();
   }
-  addDividerClasses() {
+  addDividerClasses(retriesLeft = 5) {
     const fileExplorer = document.querySelector(".nav-files-container");
-    if (!fileExplorer) return;
+    if (!fileExplorer) {
+      if (retriesLeft > 0) {
+        window.setTimeout(() => this.addDividerClasses(retriesLeft - 1), 200);
+      }
+      return;
+    }
     document.querySelectorAll("[data-item]").forEach((el) => {
       el.removeAttribute("data-item");
       el.removeAttribute("data-type");

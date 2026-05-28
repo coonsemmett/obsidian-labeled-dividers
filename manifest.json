@@ -1,7 +1,7 @@
 {
 	"id": "labeled-dividers",
 	"name": "Labeled Dividers",
-	"version": "1.2.3",
+	"version": "1.2.4",
 	"minAppVersion": "0.15.0",
 	"description": "Add visual dividers — optionally with section labels — between files and folders in the file explorer. Fork of rqinix/Obsidian-Files-Divider.",
 	"author": "Hugh (fork of rqinix)",

@@ -64,6 +64,7 @@ function dividerKey(itemName: string, itemType: string, position: string): strin
 
 export default class FilesDividersPlugin extends Plugin {
     settings: FilesDividersSettings;
+    private applyDebounce: number | null = null;
 
     async onload() {
         await this.loadSettings();
@@ -94,16 +95,25 @@ export default class FilesDividersPlugin extends Plugin {
         // --- Add settings tab ---
         this.addSettingTab(new FilesDividersSettingTab(this.app, this));
 
-        // --- Apply dividers when plugin loads ---
-        if (this.settings.enabled) {
-            this.applyDividers();
-        }
+        // --- Apply dividers once the workspace layout is fully built ---
+        //     onLayoutReady fires after Obsidian's UI is constructed (file explorer
+        //     DOM exists), OR fires synchronously if layout is already ready. Without
+        //     this, the immediate apply in onload() runs BEFORE the file explorer is
+        //     rendered, so addDividerClasses() can't find any folders/files to tag —
+        //     CSS rules install but no DOM elements match. That's the "I have to
+        //     toggle the plugin off/on for it to work after vault open" bug.
+        this.app.workspace.onLayoutReady(() => {
+            if (this.settings.enabled) {
+                this.applyDividers();
+            }
+        });
 
-        // --- Watch for file explorer changes ---
+        // --- Watch for file explorer changes (theme switch, sidebar toggle, etc.) ---
+        //     Debounced so rapid events coalesce into one apply.
         this.registerEvent(
             this.app.workspace.on('layout-change', () => {
                 if (this.settings.enabled) {
-                    setTimeout(() => this.applyDividers(), 100);
+                    this.scheduleApply();
                 }
             })
         );
@@ -228,7 +238,21 @@ export default class FilesDividersPlugin extends Plugin {
     }
 
     onunload() {
+        if (this.applyDebounce !== null) {
+            window.clearTimeout(this.applyDebounce);
+            this.applyDebounce = null;
+        }
         this.removeDividers();
+    }
+
+    scheduleApply() {
+        if (this.applyDebounce !== null) {
+            window.clearTimeout(this.applyDebounce);
+        }
+        this.applyDebounce = window.setTimeout(() => {
+            this.applyDebounce = null;
+            this.applyDividers();
+        }, 150);
     }
 
     async loadSettings() {
@@ -536,9 +560,16 @@ export default class FilesDividersPlugin extends Plugin {
         this.addDividerClasses();
     }
 
-    addDividerClasses() {
+    addDividerClasses(retriesLeft: number = 5) {
         const fileExplorer = document.querySelector('.nav-files-container');
-        if (!fileExplorer) return;
+        if (!fileExplorer) {
+            // Explorer DOM not ready yet — retry with backoff for up to ~1 second.
+            // Common at vault startup, theme switch, or first-time workspace setup.
+            if (retriesLeft > 0) {
+                window.setTimeout(() => this.addDividerClasses(retriesLeft - 1), 200);
+            }
+            return;
+        }
 
         // --- Remove existing classes first ---
         document.querySelectorAll('[data-item]').forEach(el => {
