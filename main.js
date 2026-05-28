@@ -308,6 +308,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
                         ${selectorBase} {
                             position: relative;
                             ${marginSide}: ${totalSpacing2}px;
+                            overflow: visible !important;
                         }
 
                         ${selectorBase}::after {
@@ -357,6 +358,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
                     ${selectorBase} {
                         position: relative;
                         ${marginSide}: ${totalSpacing}px;
+                        overflow: visible !important;
                     }
 
                     ${selectorBase}::before {
@@ -418,6 +420,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
                 ${selectorBase} {
                     position: relative;
                     ${divider.position === "above" ? "margin-top: 16px;" : "margin-bottom: 16px;"}
+                    overflow: visible !important;
                 }
             `;
     }).join("\n");

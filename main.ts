@@ -421,6 +421,7 @@ export default class FilesDividersPlugin extends Plugin {
                         ${selectorBase} {
                             position: relative;
                             ${marginSide}: ${totalSpacing}px;
+                            overflow: visible !important;
                         }
 
                         ${selectorBase}::after {
@@ -478,6 +479,7 @@ export default class FilesDividersPlugin extends Plugin {
                     ${selectorBase} {
                         position: relative;
                         ${marginSide}: ${totalSpacing}px;
+                        overflow: visible !important;
                     }
 
                     ${selectorBase}::before {
@@ -546,6 +548,7 @@ export default class FilesDividersPlugin extends Plugin {
                 ${selectorBase} {
                     position: relative;
                     ${divider.position === 'above' ? 'margin-top: 16px;' : 'margin-bottom: 16px;'}
+                    overflow: visible !important;
                 }
             `;
         }).join('\n');

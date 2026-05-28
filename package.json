@@ -1,6 +1,6 @@
 {
 	"name": "labeled-dividers",
-	"version": "1.2.4",
+	"version": "1.2.5",
 	"description": "Obsidian plugin: visual dividers with optional section labels between files and folders. Fork of rqinix/Obsidian-Files-Divider.",
 	"main": "main.js",
 	"scripts": {
