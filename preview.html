@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Labeled Dividers — Design Preview</title>
+<style>
+  :root {
+    --bg-primary: #1e1e1e;
+    --bg-secondary: #262626;
+    --bg-row-hover: #2d2d2d;
+    --bg-row-selected: #3a2e2e;
+    --text-normal: #dcddde;
+    --text-muted: #999;
+    --text-faint: #6e6e6e;
+    --accent: #7aa2f7;
+    --label-color: #b39ddb;
+    --line-color: #484848;
+    --pin-green: #4ec9b0;
+    --base-badge-bg: #2d2d2d;
+    --base-badge-text: #888;
+    --font-mono: 'SF Mono', Monaco, Consolas, monospace;
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px;
+    background: #121212;
+    color: var(--text-normal);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  h1 { margin: 0 0 8px; font-size: 22px; }
+  h2 { margin: 32px 0 16px; font-size: 16px; color: var(--text-muted); border-bottom: 1px solid #333; padding-bottom: 8px; }
+  h3 { margin: 0 0 12px; font-size: 13px; color: var(--accent); font-weight: 600; }
+  p.lede { color: var(--text-muted); margin: 0 0 24px; max-width: 720px; }
+
+  .controls {
+    background: var(--bg-secondary);
+    padding: 16px;
+    border-radius: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 32px;
+    align-items: center;
+  }
+  .controls label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .controls input[type="color"] {
+    width: 32px;
+    height: 24px;
+    border: 1px solid #444;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .controls input[type="number"], .controls input[type="text"] {
+    width: 60px;
+    background: #1a1a1a;
+    border: 1px solid #444;
+    color: var(--text-normal);
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-family: var(--font-ui);
+    font-size: 12px;
+  }
+  .controls input[type="text"] { width: 120px; }
+  .controls .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+  }
+
+  .option {
+    background: var(--bg-primary);
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .option .desc {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin: 0 0 12px;
+    min-height: 28px;
+  }
+
+  /* --- Mock Obsidian file explorer --- */
+  .explorer {
+    background: var(--bg-primary);
+    border-radius: 6px;
+    padding: 6px 0;
+    font-size: 13px;
+    color: var(--text-normal);
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 12px;
+    cursor: default;
+  }
+  .row.selected {
+    background: var(--bg-row-selected);
+    color: #fff;
+    font-weight: 500;
+  }
+  .row .chev { color: var(--text-faint); font-size: 10px; width: 10px; }
+  .row .icon { font-size: 11px; }
+  .row .icon.pin { color: var(--pin-green); }
+  .row .icon.folder { color: #888; }
+  .row .name { flex: 1; }
+  .row .badge {
+    font-size: 9px;
+    color: var(--base-badge-text);
+    background: var(--base-badge-bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  /* =========================================================
+     OPTION A — Current 1.2.5 (above-style, left-aligned label)
+     ========================================================= */
+  .opt-a .label-block {
+    padding: 6px 12px 2px;
+  }
+  .opt-a .lbl {
+    color: var(--label-color);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .opt-a .line {
+    height: 1px;
+    background: var(--line-color);
+    margin: 4px 12px 8px;
+    opacity: 0.7;
+  }
+
+  /* =========================================================
+     OPTION B — Centered with line through (──── TEST ────)
+     ========================================================= */
+  .opt-b .centered {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+  }
+  .opt-b .centered .side-line {
+    flex: 1;
+    height: 1px;
+    background: var(--line-color);
+    opacity: 0.7;
+  }
+  .opt-b .centered .lbl {
+    color: var(--label-color);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+  }
+
+  /* =========================================================
+     OPTION C — Pill/chip label (small badge)
+     ========================================================= */
+  .opt-c .chip-block {
+    padding: 8px 12px 8px 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .opt-c .chip {
+    display: inline-block;
+    background: rgba(179, 157, 219, 0.18);
+    color: var(--label-color);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .opt-c .chip-line {
+    flex: 1;
+    height: 1px;
+    background: var(--line-color);
+    opacity: 0.5;
+  }
+
+  /* =========================================================
+     OPTION D — Underline only (no separate line, label underlined)
+     ========================================================= */
+  .opt-d .underline-block {
+    padding: 10px 16px 8px;
+  }
+  .opt-d .lbl {
+    color: var(--label-color);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--line-color);
+    padding-bottom: 4px;
+    display: inline-block;
+  }
+
+  /* =========================================================
+     OPTION E — Section header (filled background, bold)
+     ========================================================= */
+  .opt-e .section {
+    background: rgba(179, 157, 219, 0.06);
+    border-left: 2px solid var(--label-color);
+    padding: 6px 12px;
+    margin: 8px 0;
+  }
+  .opt-e .lbl {
+    color: var(--label-color);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* =========================================================
+     OPTION F — Notion-style minimal (small muted label, no caps)
+     ========================================================= */
+  .opt-f .min-block {
+    padding: 8px 16px 4px;
+  }
+  .opt-f .lbl {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.7;
+  }
+  .opt-f .line {
+    height: 1px;
+    background: var(--line-color);
+    margin: 4px 12px;
+    opacity: 0.4;
+  }
+
+  /* =========================================================
+     OPTION G — Thick boundary line, label tucked above-right
+     ========================================================= */
+  .opt-g .thick-block {
+    padding: 14px 12px 6px;
+    position: relative;
+  }
+  .opt-g .lbl {
+    color: var(--label-color);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    position: absolute;
+    top: 0;
+    right: 12px;
+    background: var(--bg-primary);
+    padding: 0 6px;
+  }
+  .opt-g .line {
+    height: 2px;
+    background: var(--label-color);
+    opacity: 0.7;
+    border-radius: 1px;
+  }
+
+  /* =========================================================
+     OPTION H — Full-width subtle bar with centered text
+     ========================================================= */
+  .opt-h .bar {
+    background: linear-gradient(90deg, transparent 0%, rgba(179, 157, 219, 0.08) 50%, transparent 100%);
+    text-align: center;
+    padding: 6px 12px;
+    margin: 8px 0;
+  }
+  .opt-h .lbl {
+    color: var(--label-color);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  /* --- Footer / vote --- */
+  .vote {
+    margin-top: 40px;
+    padding: 20px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    text-align: center;
+  }
+  .vote h2 { border: 0; margin: 0 0 12px; color: var(--text-normal); }
+  .vote p { color: var(--text-muted); margin: 0; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Labeled Dividers — design preview</h1>
+<p class="lede">
+  Eight ways the label + line can render in your file explorer. Each block shows the same scenario:
+  a labeled divider sitting <em>below</em> "0. Inbox's Database" with the label text "TEST NAME".
+  Adjust the colors at the top to see what each looks like in your taste. Pick A–H and tell me — I'll port that one to the plugin using real DOM elements (which also fixes the overflow clipping for good).
+</p>
+
+<div class="controls">
+  <label>Label color <input type="color" id="ctl-label" value="#b39ddb"></label>
+  <label>Line color <input type="color" id="ctl-line" value="#484848"></label>
+  <label>Background <input type="color" id="ctl-bg" value="#1e1e1e"></label>
+  <label>Label text <input type="text" id="ctl-text" value="TEST NAME"></label>
+  <label>Font size <input type="number" id="ctl-size" value="11" min="8" max="18"></label>
+  <label class="toggle"><input type="checkbox" id="ctl-upper" checked> UPPERCASE</label>
+  <label class="toggle"><input type="checkbox" id="ctl-bold" checked> Bold</label>
+</div>
+
+<div class="grid">
+
+  <!-- A: current 1.2.5 -->
+  <div class="option opt-a">
+    <h3>A — Above-style left (current 1.2.5)</h3>
+    <p class="desc">Label hugs the file, left-aligned. Line below as section boundary.</p>
+    <div class="explorer">
+      <div class="row selected"><span class="chev">▼</span><span class="icon pin">📌</span><span class="name">0. Inbox's Database</span></div>
+      <div class="label-block"><div class="lbl">TEST NAME</div></div>
+      <div class="line"></div>
+      <div class="row"><span class="chev"></span><span class="icon pin">📌</span><span class="name">0. inbox</span><span class="badge">base</span></div>
+      <div class="row"><span class="chev">▶</span><span class="icon folder">📁</span><span class="name">_Parent Dump</span></div>
+    </div>
+  </div>
+
+  <!-- B: centered through line -->
+  <div class="option opt-b">
+    <h3>B — Centered through line</h3>
+    <p class="desc">Classic section header: <code>──── TEST ────</code>. Line passes through label area.</p>
+    <div class="explorer">
+      <div class="row selected"><span class="chev">▼</span><span class="icon pin">📌</span><span class="name">0. Inbox's Database</span></div>
+      <div class="centered"><div class="side-line"></div><div class="lbl">TEST NAME</div><div class="side-line"></div></div>
+      <div class="row"><span class="chev"></span><span class="icon pin">📌</span><span class="name">0. inbox</span><span class="badge">base</span></div>
+      <div class="row"><span class="chev">▶</span><span class="icon folder">📁</span><span class="name">_Parent Dump</span></div>
+    </div>
+  </div>
+
+  <!-- C: pill/chip -->
+  <div class="option opt-c">
+    <h3>C — Pill / chip label</h3>
+    <p class="desc">Label in a small rounded chip, thin line beside it. Compact, modern.</p>
+    <div class="explorer">
+      <div class="row selected"><span class="chev">▼</span><span class="icon pin">📌</span><span class="name">0. Inbox's Database</span></div>
+      <div class="chip-block"><span class="chip">TEST NAME</span><div class="chip-line"></div></div>
+      <div class="row"><span class="chev"></span><span class="icon pin">📌</span><span class="name">0. inbox</span><span class="badge">base</span></div>
+      <div class="row"><span class="chev">▶</span><span class="icon folder">📁</span><span class="name">_Parent Dump</span></div>
+    </div>
+  </div>
+
+  <!-- D: underline only -->
+  <div class="option opt-d">
+    <h3>D — Underline only</h3>
+    <p class="desc">No separate line — the label has a thin underline. Minimal vertical space.</p>
+    <div class="explorer">
+      <div class="row selected"><span class="chev">▼</span><span class="icon pin">📌</span><span class="name">0. Inbox's Database</span></div>
+      <div class="underline-block"><span class="lbl">TEST NAME</span></div>
+      <div class="row"><span class="chev"></span><span class="icon pin">📌</span><span class="name">0. inbox</span><span class="badge">base</span></div>
+      <div class="row"><span class="chev">▶</span><span class="icon folder">📁</span><span class="name">_Parent Dump</span></div>
+    </div>
+  </div>
+
+  <!-- E: section header (background + side accent) -->
+  <div class="option opt-e">
+    <h3>E — Section header</h3>
+    <p class="desc">Filled background with accent bar on the left. Strongest visual grouping.</p>
+    <div class="explorer">
+      <div class="row selected"><span class="chev">▼</span><span class="icon pin">📌</span><span class="name">0. Inbox's Database</span></div>
+      <div class="section"><span class="lbl">TEST NAME</span></div>
+      <div class="row"><span class="chev"></span><span class="icon pin">📌</span><span class="name">0. inbox</span><span class="badge">base</span></div>
+      <div class="row"><span class="chev">▶</span><span class="icon folder">📁</span><span class="name">_Parent Dump</span></div>
+    </div>
+  </div>
+
+  <!-- F: Notion-style minimal -->
+  <div class="option opt-f">
+    <h3>F — Notion-style minimal</h3>
+    <p class="desc">Small muted label, no caps. Subtle thin line. Doesn't compete for attention.</p>
+    <div class="explorer">
+      <div class="row selected"><span class="chev">▼</span><span class="icon pin">📌</span><span class="name">0. Inbox's Database</span></div>
+      <div class="min-block"><div class="lbl">Test Name</div></div>
+      <div class="line"></div>
+      <div class="row"><span class="chev"></span><span class="icon pin">📌</span><span class="name">0. inbox</span><span class="badge">base</span></div>
+      <div class="row"><span class="chev">▶</span><span class="icon folder">📁</span><span class="name">_Parent Dump</span></div>
+    </div>
+  </div>
+
+  <!-- G: thick line, label tucked above-right -->
+  <div class="option opt-g">
+    <h3>G — Bold accent + tucked label</h3>
+    <p class="desc">Thick colored line with a small label in the top-right corner, like a tab.</p>
+    <div class="explorer">
+      <div class="row selected"><span class="chev">▼</span><span class="icon pin">📌</span><span class="name">0. Inbox's Database</span></div>
+      <div class="thick-block"><span class="lbl">TEST NAME</span><div class="line"></div></div>
+      <div class="row"><span class="chev"></span><span class="icon pin">📌</span><span class="name">0. inbox</span><span class="badge">base</span></div>
+      <div class="row"><span class="chev">▶</span><span class="icon folder">📁</span><span class="name">_Parent Dump</span></div>
+    </div>
+  </div>
+
+  <!-- H: subtle gradient bar with centered text -->
+  <div class="option opt-h">
+    <h3>H — Soft gradient bar</h3>
+    <p class="desc">Soft gradient background fades from transparent to label color and back. Center text. No hard line.</p>
+    <div class="explorer">
+      <div class="row selected"><span class="chev">▼</span><span class="icon pin">📌</span><span class="name">0. Inbox's Database</span></div>
+      <div class="bar"><div class="lbl">TEST NAME</div></div>
+      <div class="row"><span class="chev"></span><span class="icon pin">📌</span><span class="name">0. inbox</span><span class="badge">base</span></div>
+      <div class="row"><span class="chev">▶</span><span class="icon folder">📁</span><span class="name">_Parent Dump</span></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="vote">
+  <h2>Pick one (A–H)</h2>
+  <p>Tell me the letter and any tweaks (color, size, alignment, etc.) and I'll port it into the plugin using real DOM elements — which also eliminates the overflow:hidden clipping problem for good.</p>
+</div>
+
+<script>
+  // Live re-render when controls change
+  const $ = (id) => document.getElementById(id);
+  const apply = () => {
+    const labelColor = $('ctl-label').value;
+    const lineColor = $('ctl-line').value;
+    const bgColor = $('ctl-bg').value;
+    const text = $('ctl-text').value || 'TEST NAME';
+    const size = $('ctl-size').value + 'px';
+    const upper = $('ctl-upper').checked ? 'uppercase' : 'none';
+    const weight = $('ctl-bold').checked ? '700' : '500';
+
+    document.documentElement.style.setProperty('--label-color', labelColor);
+    document.documentElement.style.setProperty('--line-color', lineColor);
+    document.documentElement.style.setProperty('--bg-primary', bgColor);
+
+    document.querySelectorAll('.lbl, .chip').forEach(el => {
+      el.textContent = text;
+      el.style.fontSize = size;
+      el.style.textTransform = upper;
+      el.style.fontWeight = weight;
+    });
+
+    // Option D label keeps its inline-block + border-bottom even when text changes
+    document.querySelectorAll('.opt-d .lbl').forEach(el => {
+      el.style.borderBottom = '1px solid ' + lineColor;
+    });
+
+    // Option G label keeps its background matching bg
+    document.querySelectorAll('.opt-g .lbl').forEach(el => {
+      el.style.background = bgColor;
+    });
+    document.querySelectorAll('.opt-g .line').forEach(el => {
+      el.style.background = labelColor;
+    });
+
+    // Chip background ties to label color
+    document.querySelectorAll('.opt-c .chip').forEach(el => {
+      el.style.background = labelColor + '2e';
+      el.style.color = labelColor;
+    });
+
+    // Section background
+    document.querySelectorAll('.opt-e .section').forEach(el => {
+      el.style.background = labelColor + '14';
+      el.style.borderLeftColor = labelColor;
+    });
+
+    // Gradient bar (option H)
+    document.querySelectorAll('.opt-h .bar').forEach(el => {
+      el.style.background = `linear-gradient(90deg, transparent 0%, ${labelColor}22 50%, transparent 100%)`;
+    });
+  };
+
+  ['ctl-label','ctl-line','ctl-bg','ctl-text','ctl-size','ctl-upper','ctl-bold']
+    .forEach(id => $(id).addEventListener('input', apply));
+  apply();
+</script>
+
+</body>
+</html>

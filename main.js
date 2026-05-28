@@ -28,6 +28,16 @@ __export(main_exports, {
 });
 module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
+var LABEL_STYLE_OPTIONS = [
+  { value: "above", letter: "A", title: "Above-style (default)", desc: "Label hugs the file, thin line below as section boundary" },
+  { value: "centered", letter: "B", title: "Centered through line", desc: "\u2500\u2500\u2500\u2500 LABEL \u2500\u2500\u2500\u2500 line passes through the label" },
+  { value: "chip", letter: "C", title: "Pill / chip", desc: "Compact rounded chip + thin line beside it" },
+  { value: "underline", letter: "D", title: "Underline only", desc: "Label with thin underline, no separate line" },
+  { value: "section", letter: "E", title: "Section header", desc: "Filled background + left accent bar \u2014 strongest grouping" },
+  { value: "minimal", letter: "F", title: "Notion-style minimal", desc: "Small muted label, no caps, subtle line" },
+  { value: "tucked", letter: "G", title: "Bold accent + tucked", desc: "Thick colored line with small label tucked top-right" },
+  { value: "gradient", letter: "H", title: "Soft gradient bar", desc: "Gradient fades through label color, no hard line" }
+];
 var DEFAULT_SETTINGS = {
   dividers: [],
   dividerColor: "#484848",
@@ -39,8 +49,8 @@ var DEFAULT_SETTINGS = {
   labelItalic: false,
   enabled: true
 };
-function escapeForCss(str) {
-  return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\A ");
+function dividerKey(itemName, itemType, position) {
+  return `${itemType}::${position}::${itemName}`;
 }
 var FilesDividersPlugin = class extends import_obsidian.Plugin {
   constructor() {
@@ -280,218 +290,333 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     this.saveSettings();
     new import_obsidian.Notice(`Cleared ${count} divider(s)`);
   }
-  applyDividers() {
+  /**
+   * applyDividers — DOM-based rendering.
+   * Removes any previously-injected divider elements + style sheets, then for every
+   * configured divider finds the matching file/folder row and inserts a real <div>
+   * sibling (before for above-position, after for below). Each div is fully styled
+   * via CSS classes (one per labelStyle) and a CSS custom-property block for
+   * per-divider color overrides.
+   *
+   * Real DOM (vs. earlier pseudo-element approach) means:
+   *   - no fighting with theme's overflow:hidden on .nav-file rows
+   *   - 8 visually-distinct styles can each define their own internal markup
+   *   - future wishlist item #13 (click label to edit) is unlocked
+   */
+  applyDividers(retriesLeft = 5) {
     this.removeDividers();
-    if (this.settings.dividers.length === 0) {
-      return;
-    }
-    const cssRules = this.settings.dividers.map((divider) => {
-      var _a;
-      const pseudoElement = divider.position === "above" ? "before" : "after";
-      const itemClass = divider.itemType === "folder" ? "nav-folder" : "nav-file";
-      const selectorBase = `.${itemClass}-divider-${divider.position}[data-item="${escapeForCss(divider.itemName)}"][data-type="${divider.itemType}"]`;
-      if (divider.label) {
-        const edge = divider.position === "above" ? "top" : "bottom";
-        const marginSide = divider.position === "above" ? "margin-top" : "margin-bottom";
-        const transform = this.settings.labelUppercase ? "uppercase" : "none";
-        const letterSpacing = this.settings.labelUppercase ? "0.08em" : "normal";
-        const fontWeight = this.settings.labelBold ? "600" : "400";
-        const fontStyle = this.settings.labelItalic ? "italic" : "normal";
-        const effectiveLabelColor = divider.labelColor || this.settings.labelColor;
-        const effectiveLineColor = divider.lineColor || this.settings.dividerColor;
-        const labelStyle = (_a = divider.labelStyle) != null ? _a : "above";
-        if (labelStyle === "centered") {
-          const stripeOffset = Math.max(10, this.settings.labelFontSize);
-          const totalSpacing2 = stripeOffset + this.settings.labelFontSize / 2 + 4;
-          return `
-                        /* --- Centered labeled divider for ${divider.itemType} "${divider.itemName}" --- */
-                        ${selectorBase} {
-                            position: relative;
-                            ${marginSide}: ${totalSpacing2}px;
-                            overflow: visible !important;
-                        }
-
-                        ${selectorBase}::after {
-                            content: '';
-                            position: absolute;
-                            ${edge}: -${stripeOffset}px;
-                            left: 0;
-                            right: 0;
-                            width: 100%;
-                            height: ${this.settings.dividerThickness}px;
-                            background-color: ${effectiveLineColor};
-                            border-radius: ${this.settings.dividerThickness / 2}px;
-                            opacity: 0.7;
-                            pointer-events: none;
-                            z-index: 1;
-                        }
-
-                        ${selectorBase}::before {
-                            content: "${escapeForCss(divider.label)}";
-                            position: absolute;
-                            ${edge}: -${stripeOffset + this.settings.labelFontSize / 2}px;
-                            left: 50%;
-                            transform: translateX(-50%);
-                            color: ${effectiveLabelColor};
-                            font-size: ${this.settings.labelFontSize}px;
-                            font-weight: ${fontWeight};
-                            font-style: ${fontStyle};
-                            text-transform: ${transform};
-                            letter-spacing: ${letterSpacing};
-                            line-height: 1;
-                            padding: 0 8px;
-                            background-color: var(--background-secondary, var(--background-primary, #1e1e1e));
-                            opacity: 0.95;
-                            pointer-events: none;
-                            white-space: nowrap;
-                            z-index: 2;
-                        }
-                    `;
-        }
-        const innerOffset = 6;
-        const outerOffset = innerOffset + this.settings.labelFontSize + 8;
-        const totalSpacing = outerOffset + 6;
-        const labelEdgeOffset = divider.position === "above" ? outerOffset : innerOffset;
-        const lineEdgeOffset2 = divider.position === "above" ? innerOffset : outerOffset;
-        return `
-                    /* --- Labeled divider (above-style) for ${divider.itemType} "${divider.itemName}" ${divider.position} --- */
-                    ${selectorBase} {
-                        position: relative;
-                        ${marginSide}: ${totalSpacing}px;
-                        overflow: visible !important;
-                    }
-
-                    ${selectorBase}::before {
-                        content: "${escapeForCss(divider.label)}";
-                        position: absolute;
-                        ${edge}: -${labelEdgeOffset}px;
-                        left: 0;
-                        right: 0;
-                        width: 100%;
-                        box-sizing: border-box;
-                        color: ${effectiveLabelColor};
-                        font-size: ${this.settings.labelFontSize}px;
-                        font-weight: ${fontWeight};
-                        font-style: ${fontStyle};
-                        text-transform: ${transform};
-                        letter-spacing: ${letterSpacing};
-                        line-height: 1.2;
-                        padding: 0 6px;
-                        opacity: 0.95;
-                        pointer-events: none;
-                        z-index: 2;
-                    }
-
-                    ${selectorBase}::after {
-                        content: '';
-                        position: absolute;
-                        ${edge}: -${lineEdgeOffset2}px;
-                        left: 0;
-                        right: 0;
-                        width: 100%;
-                        height: ${this.settings.dividerThickness}px;
-                        background-color: ${effectiveLineColor};
-                        border-radius: ${this.settings.dividerThickness / 2}px;
-                        opacity: 0.7;
-                        pointer-events: none;
-                        z-index: 2;
-                    }
-                `;
-      }
-      const lineEdgeOffset = 8 + this.settings.dividerThickness;
-      return `
-                /* --- Plain divider for ${divider.itemType} "${divider.itemName}" ${divider.position} --- */
-                ${selectorBase}::${pseudoElement} {
-                    content: '';
-                    position: absolute;
-                    left: 0;
-                    right: 0;
-                    width: 100%;
-                    height: ${this.settings.dividerThickness}px;
-                    background-color: ${this.settings.dividerColor};
-                    border-radius: ${this.settings.dividerThickness / 2}px;
-                    opacity: 0.7;
-                    pointer-events: none;
-                    z-index: 2;
-                    ${divider.position === "above" ? `top: -${lineEdgeOffset}px;` : `bottom: -${lineEdgeOffset}px;`}
-                }
-
-                /* --- Add spacing and position to dividers --- */
-                ${selectorBase} {
-                    position: relative;
-                    ${divider.position === "above" ? "margin-top: 16px;" : "margin-bottom: 16px;"}
-                    overflow: visible !important;
-                }
-            `;
-    }).join("\n");
-    const styleElement = document.createElement("style");
-    styleElement.id = "files-dividers-styles";
-    styleElement.textContent = cssRules;
-    document.head.appendChild(styleElement);
-    this.addDividerClasses();
-  }
-  addDividerClasses(retriesLeft = 5) {
+    this.installStyles();
+    if (this.settings.dividers.length === 0) return;
     const fileExplorer = document.querySelector(".nav-files-container");
     if (!fileExplorer) {
       if (retriesLeft > 0) {
-        window.setTimeout(() => this.addDividerClasses(retriesLeft - 1), 200);
+        window.setTimeout(() => this.applyDividers(retriesLeft - 1), 200);
       }
       return;
     }
-    document.querySelectorAll("[data-item]").forEach((el) => {
-      el.removeAttribute("data-item");
-      el.removeAttribute("data-type");
-      el.classList.remove("nav-folder-divider-above");
-      el.classList.remove("nav-folder-divider-below");
-      el.classList.remove("nav-file-divider-above");
-      el.classList.remove("nav-file-divider-below");
-    });
     this.settings.dividers.forEach((divider) => {
-      if (divider.itemType === "folder") {
-        const folders = fileExplorer.querySelectorAll(".nav-folder");
-        folders.forEach((folder) => {
-          var _a;
-          const titleElement = folder.querySelector(".nav-folder-title");
-          if (titleElement) {
-            const folderName = (_a = titleElement.textContent) == null ? void 0 : _a.trim();
-            if (folderName === divider.itemName) {
-              folder.classList.add(`nav-folder-divider-${divider.position}`);
-              folder.setAttribute("data-item", divider.itemName);
-              folder.setAttribute("data-type", "folder");
-            }
-          }
-        });
-      } else if (divider.itemType === "file") {
-        const files = fileExplorer.querySelectorAll(".nav-file");
-        files.forEach((file) => {
-          var _a;
-          const titleElement = file.querySelector(".nav-file-title");
-          if (titleElement) {
-            const fileName = (_a = titleElement.textContent) == null ? void 0 : _a.trim();
-            const fileNameWithoutExt = fileName == null ? void 0 : fileName.replace(/\.[^/.]+$/, "");
-            const dividerNameWithoutExt = divider.itemName.replace(/\.[^/.]+$/, "");
-            if (fileName === divider.itemName || fileNameWithoutExt === dividerNameWithoutExt || fileName === dividerNameWithoutExt || fileNameWithoutExt === divider.itemName) {
-              file.classList.add(`nav-file-divider-${divider.position}`);
-              file.setAttribute("data-item", divider.itemName);
-              file.setAttribute("data-type", "file");
-            }
-          }
-        });
+      const anchor = this.findAnchor(fileExplorer, divider);
+      if (!anchor) return;
+      const dividerEl = this.createDividerEl(divider);
+      const parent = anchor.parentNode;
+      if (!parent) return;
+      if (divider.position === "above") {
+        parent.insertBefore(dividerEl, anchor);
+      } else {
+        parent.insertBefore(dividerEl, anchor.nextSibling);
       }
     });
   }
-  removeDividers() {
-    const existingStyles = document.getElementById("files-dividers-styles");
-    if (existingStyles) {
-      existingStyles.remove();
+  /**
+   * Locate the .nav-folder / .nav-file element that matches a divider's anchor name.
+   * For files we accept name-with-extension and name-without-extension on either side
+   * (the explorer DOM strips extensions for visible titles in some Obsidian configs).
+   */
+  findAnchor(container, divider) {
+    var _a, _b;
+    const itemClass = divider.itemType === "folder" ? "nav-folder" : "nav-file";
+    const titleClass = divider.itemType === "folder" ? "nav-folder-title" : "nav-file-title";
+    const candidates = container.querySelectorAll(`.${itemClass}`);
+    for (let i = 0; i < candidates.length; i++) {
+      const candidate = candidates[i];
+      const titleEl = candidate.querySelector(`.${titleClass}`);
+      if (!titleEl) continue;
+      const name = (_b = (_a = titleEl.textContent) == null ? void 0 : _a.trim()) != null ? _b : "";
+      if (divider.itemType === "file") {
+        const nameNoExt = name.replace(/\.[^/.]+$/, "");
+        const targetNoExt = divider.itemName.replace(/\.[^/.]+$/, "");
+        if (name === divider.itemName || nameNoExt === targetNoExt || name === targetNoExt || nameNoExt === divider.itemName) {
+          return candidate;
+        }
+      } else if (name === divider.itemName) {
+        return candidate;
+      }
     }
+    return null;
+  }
+  /**
+   * Build the divider's HTMLElement for the appropriate style.
+   * Each style defines its own internal markup; CSS classes from installStyles()
+   * paint the look. Per-divider colors flow through CSS custom properties so
+   * overrides don't require new style rules.
+   */
+  createDividerEl(divider) {
+    var _a, _b;
+    const labelText = ((_a = divider.label) != null ? _a : "").trim();
+    const style = (_b = divider.labelStyle) != null ? _b : "above";
+    const labelColor = divider.labelColor || this.settings.labelColor;
+    const lineColor = divider.lineColor || this.settings.dividerColor;
+    const container = document.createElement("div");
+    container.classList.add("lbl-div");
+    container.classList.add(`lbl-div--pos-${divider.position}`);
+    container.classList.add(labelText ? `lbl-div--${style}` : "lbl-div--plain");
+    container.setAttribute("data-key", dividerKey(divider.itemName, divider.itemType, divider.position));
+    container.style.setProperty("--lbl-div-label-color", labelColor);
+    container.style.setProperty("--lbl-div-line-color", lineColor);
+    container.style.setProperty("--lbl-div-thickness", `${this.settings.dividerThickness}px`);
+    container.style.setProperty("--lbl-div-font-size", `${this.settings.labelFontSize}px`);
+    container.style.setProperty("--lbl-div-font-weight", this.settings.labelBold ? "600" : "400");
+    container.style.setProperty("--lbl-div-font-style", this.settings.labelItalic ? "italic" : "normal");
+    container.style.setProperty("--lbl-div-text-transform", this.settings.labelUppercase ? "uppercase" : "none");
+    container.style.setProperty("--lbl-div-letter-spacing", this.settings.labelUppercase ? "0.08em" : "normal");
+    if (!labelText) {
+      const line = document.createElement("div");
+      line.className = "lbl-div__line";
+      container.appendChild(line);
+      return container;
+    }
+    const mkEl = (tag, cls, text) => {
+      const el = document.createElement(tag);
+      el.className = cls;
+      if (text !== void 0) el.textContent = text;
+      return el;
+    };
+    switch (style) {
+      case "centered":
+        container.append(
+          mkEl("div", "lbl-div__line-side"),
+          mkEl("span", "lbl-div__label", labelText),
+          mkEl("div", "lbl-div__line-side")
+        );
+        break;
+      case "chip":
+        container.append(
+          mkEl("span", "lbl-div__chip", labelText),
+          mkEl("div", "lbl-div__line-thin")
+        );
+        break;
+      case "underline":
+        container.append(mkEl("span", "lbl-div__label-underline", labelText));
+        break;
+      case "section":
+        container.append(
+          mkEl("div", "lbl-div__bar"),
+          mkEl("span", "lbl-div__label", labelText)
+        );
+        break;
+      case "minimal":
+        container.append(
+          mkEl("div", "lbl-div__label-soft", labelText),
+          mkEl("div", "lbl-div__line-soft")
+        );
+        break;
+      case "tucked":
+        container.append(
+          mkEl("span", "lbl-div__label-tuck", labelText),
+          mkEl("div", "lbl-div__line-thick")
+        );
+        break;
+      case "gradient":
+        container.append(mkEl("div", "lbl-div__label-bar", labelText));
+        break;
+      case "above":
+      default:
+        container.append(
+          mkEl("div", "lbl-div__label", labelText),
+          mkEl("div", "lbl-div__line")
+        );
+        break;
+    }
+    return container;
+  }
+  /**
+   * Inject the single base stylesheet covering all 8 label styles + plain dividers.
+   * Idempotent — reuses the existing <style id="lbl-div-styles"> if already attached.
+   */
+  installStyles() {
+    let styleEl = document.getElementById("lbl-div-styles");
+    if (!styleEl) {
+      styleEl = document.createElement("style");
+      styleEl.id = "lbl-div-styles";
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = `
+.lbl-div { display: block; user-select: none; pointer-events: none; }
+.lbl-div__label, .lbl-div__label-soft, .lbl-div__label-underline,
+.lbl-div__label-tuck, .lbl-div__label-bar, .lbl-div__chip {
+    color: var(--lbl-div-label-color, #888);
+    font-size: var(--lbl-div-font-size, 11px);
+    font-weight: var(--lbl-div-font-weight, 600);
+    font-style: var(--lbl-div-font-style, normal);
+    text-transform: var(--lbl-div-text-transform, uppercase);
+    letter-spacing: var(--lbl-div-letter-spacing, 0.08em);
+    line-height: 1.2;
+}
+.lbl-div__line, .lbl-div__line-side, .lbl-div__line-thin,
+.lbl-div__line-soft, .lbl-div__line-thick {
+    background-color: var(--lbl-div-line-color, #484848);
+    border-radius: 1px;
+}
+
+/* Plain divider */
+.lbl-div--plain { padding: 6px 0; }
+.lbl-div--plain .lbl-div__line {
+    height: var(--lbl-div-thickness, 1px);
+    margin: 0 12px;
+    opacity: 0.7;
+}
+
+/* A \u2014 Above-style (default) */
+.lbl-div--above { padding: 6px 0 4px; }
+.lbl-div--above .lbl-div__label { padding: 0 12px; }
+.lbl-div--above .lbl-div__line {
+    height: var(--lbl-div-thickness, 1px);
+    margin: 4px 12px 0;
+    opacity: 0.7;
+}
+
+/* B \u2014 Centered through line */
+.lbl-div--centered {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+}
+.lbl-div--centered .lbl-div__line-side {
+    flex: 1;
+    height: var(--lbl-div-thickness, 1px);
+    opacity: 0.7;
+}
+.lbl-div--centered .lbl-div__label { white-space: nowrap; }
+
+/* C \u2014 Pill / chip */
+.lbl-div--chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 16px;
+}
+.lbl-div--chip .lbl-div__chip {
+    display: inline-block;
+    background-color: color-mix(in srgb, var(--lbl-div-label-color, #888) 20%, transparent);
+    padding: 2px 8px;
+    border-radius: 999px;
+    letter-spacing: 0.06em;
+    font-size: calc(var(--lbl-div-font-size, 11px) - 1px);
+    font-weight: 700;
+}
+.lbl-div--chip .lbl-div__line-thin {
+    flex: 1;
+    height: 1px;
+    opacity: 0.5;
+}
+
+/* D \u2014 Underline only */
+.lbl-div--underline { padding: 8px 16px 6px; }
+.lbl-div--underline .lbl-div__label-underline {
+    display: inline-block;
+    border-bottom: 1px solid var(--lbl-div-line-color, #484848);
+    padding-bottom: 3px;
+}
+
+/* E \u2014 Section header */
+.lbl-div--section {
+    position: relative;
+    background-color: color-mix(in srgb, var(--lbl-div-label-color, #888) 10%, transparent);
+    padding: 5px 12px 5px 14px;
+    margin: 4px 0;
+}
+.lbl-div--section .lbl-div__bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: var(--lbl-div-label-color, #888);
+    border-radius: 0;
+}
+.lbl-div--section .lbl-div__label { font-weight: 700; }
+
+/* F \u2014 Notion-style minimal */
+.lbl-div--minimal { padding: 6px 0 4px; }
+.lbl-div--minimal .lbl-div__label-soft {
+    padding: 0 16px;
+    font-weight: 500;
+    opacity: 0.7;
+    text-transform: none;
+    letter-spacing: normal;
+}
+.lbl-div--minimal .lbl-div__line-soft {
+    height: 1px;
+    margin: 3px 12px 0;
+    opacity: 0.4;
+}
+
+/* G \u2014 Bold accent + tucked label */
+.lbl-div--tucked {
+    position: relative;
+    padding: 12px 12px 6px;
+}
+.lbl-div--tucked .lbl-div__label-tuck {
+    position: absolute;
+    top: -1px;
+    right: 14px;
+    font-size: calc(var(--lbl-div-font-size, 11px) - 1px);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    background-color: var(--background-primary, var(--background-secondary, #1e1e1e));
+    padding: 0 6px;
+}
+.lbl-div--tucked .lbl-div__line-thick {
+    height: 2px;
+    margin: 0 12px;
+    background-color: var(--lbl-div-label-color, #888);
+    opacity: 0.7;
+}
+
+/* H \u2014 Soft gradient bar */
+.lbl-div--gradient {
+    margin: 4px 0;
+    padding: 5px 12px;
+    background: linear-gradient(90deg,
+        transparent 0%,
+        color-mix(in srgb, var(--lbl-div-label-color, #888) 13%, transparent) 50%,
+        transparent 100%);
+    text-align: center;
+}
+.lbl-div--gradient .lbl-div__label-bar { letter-spacing: 0.1em; }
+`;
+  }
+  /**
+   * Remove every divider element this plugin has injected, plus its stylesheet.
+   * Also scrubs the legacy pseudo-element residue from pre-1.3.0 versions in case
+   * an existing install upgraded mid-session.
+   */
+  removeDividers() {
+    document.querySelectorAll(".lbl-div").forEach((el) => el.remove());
+    const styleEl = document.getElementById("lbl-div-styles");
+    if (styleEl) styleEl.remove();
+    const legacyStyles = document.getElementById("files-dividers-styles");
+    if (legacyStyles) legacyStyles.remove();
     document.querySelectorAll("[data-item]").forEach((el) => {
       el.removeAttribute("data-item");
       el.removeAttribute("data-type");
-      el.removeClass("nav-folder-divider-above");
-      el.removeClass("nav-folder-divider-below");
-      el.removeClass("nav-file-divider-above");
-      el.removeClass("nav-file-divider-below");
+      el.classList.remove(
+        "nav-folder-divider-above",
+        "nav-folder-divider-below",
+        "nav-file-divider-above",
+        "nav-file-divider-below"
+      );
     });
   }
   toggleDividers() {
@@ -589,7 +714,10 @@ var FilesDividersSettingTab = class extends import_obsidian.PluginSettingTab {
           setting.addDropdown(
             (dropdown) => {
               var _a2;
-              return dropdown.addOption("above", "Above").addOption("centered", "Centered \u2500x\u2500").setValue((_a2 = divider.labelStyle) != null ? _a2 : "above").onChange(async (value) => {
+              LABEL_STYLE_OPTIONS.forEach((opt) => {
+                dropdown.addOption(opt.value, `${opt.letter} \u2014 ${opt.title}`);
+              });
+              dropdown.setValue((_a2 = divider.labelStyle) != null ? _a2 : "above").onChange(async (value) => {
                 this.plugin.updateDividerStyle(divider.itemName, divider.itemType, divider.position, value);
                 this.display();
               });
@@ -694,10 +822,11 @@ var LabelInputModal = class extends import_obsidian.Modal {
     styleLabel.style.fontWeight = "500";
     styleLabel.style.marginBottom = "4px";
     const styleRow = contentEl.createDiv();
-    styleRow.style.display = "flex";
-    styleRow.style.gap = "16px";
+    styleRow.style.display = "grid";
+    styleRow.style.gridTemplateColumns = "1fr 1fr";
+    styleRow.style.gap = "8px 16px";
     styleRow.style.marginBottom = "14px";
-    const makeRadio = (value, labelText, descText) => {
+    const makeRadio = (value, letter, labelText, descText) => {
       const wrap = styleRow.createEl("label");
       wrap.style.display = "flex";
       wrap.style.alignItems = "flex-start";
@@ -711,14 +840,15 @@ var LabelInputModal = class extends import_obsidian.Modal {
         if (radio.checked) this.chosenStyle = value;
       });
       const labelWrap = wrap.createDiv();
-      const titleEl = labelWrap.createEl("div", { text: labelText });
+      const titleEl = labelWrap.createEl("div", { text: `${letter} \u2014 ${labelText}` });
       titleEl.style.fontSize = "13px";
       const descEl = labelWrap.createEl("div", { text: descText });
       descEl.style.fontSize = "11px";
       descEl.style.opacity = "0.7";
     };
-    makeRadio("above", "Above", "Text sits above the line");
-    makeRadio("centered", "Centered", "\u2500\u2500\u2500 TEXT \u2500\u2500\u2500 (line through label)");
+    LABEL_STYLE_OPTIONS.forEach((opt) => {
+      makeRadio(opt.value, opt.letter, opt.title, opt.desc);
+    });
     const buttonRow = contentEl.createDiv();
     buttonRow.style.display = "flex";
     buttonRow.style.justifyContent = "flex-end";
