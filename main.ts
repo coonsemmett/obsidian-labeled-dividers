@@ -76,6 +76,7 @@ function dividerKey(itemName: string, itemType: string, position: string): strin
 export default class FilesDividersPlugin extends Plugin {
     settings: FilesDividersSettings;
     private applyDebounce: number | null = null;
+    private treeObserver: MutationObserver | null = null;
 
     async onload() {
         await this.loadSettings();
@@ -249,6 +250,7 @@ export default class FilesDividersPlugin extends Plugin {
     }
 
     onunload() {
+        this.teardownObserver();
         if (this.applyDebounce !== null) {
             window.clearTimeout(this.applyDebounce);
             this.applyDebounce = null;
@@ -415,18 +417,22 @@ export default class FilesDividersPlugin extends Plugin {
         this.removeDividers();
         this.installStyles();
 
-        if (this.settings.dividers.length === 0) return;
+        if (this.settings.dividers.length === 0) {
+            this.teardownObserver();
+            return;
+        }
 
         const fileExplorer = document.querySelector('.nav-files-container');
         if (!fileExplorer) {
-            // Explorer DOM not ready yet — retry with backoff for up to ~1 second.
-            // Hits at vault startup, theme swap, or first-time workspace setup.
+            // Container element not in DOM yet (cold vault startup, theme swap,
+            // workspace remount). Retry with backoff for up to ~1 second.
             if (retriesLeft > 0) {
                 window.setTimeout(() => this.applyDividers(retriesLeft - 1), 200);
             }
             return;
         }
 
+        let placedCount = 0;
         this.settings.dividers.forEach(divider => {
             const anchor = this.findAnchor(fileExplorer, divider);
             if (!anchor) return;
@@ -438,7 +444,58 @@ export default class FilesDividersPlugin extends Plugin {
             } else {
                 parent.insertBefore(dividerEl, anchor.nextSibling);
             }
+            placedCount++;
         });
+
+        // Always (re)attach the MutationObserver so future tree changes re-apply us.
+        // Covers the case where Obsidian populates folders/files AFTER onLayoutReady
+        // fires — without this, dividers would be missing until the user did something
+        // that fired a layout-change event.
+        this.ensureObserver(fileExplorer);
+
+        // If nothing was placed but we have configured dividers, the file tree may
+        // still be populating. Retry — the observer also covers this case but explicit
+        // retry gets the dividers in faster on cold startup.
+        if (placedCount === 0 && retriesLeft > 0) {
+            window.setTimeout(() => this.applyDividers(retriesLeft - 1), 200);
+        }
+    }
+
+    /**
+     * Set up a MutationObserver on the file explorer so any change to its child
+     * nav-folder / nav-file nodes triggers a debounced re-apply. This catches the
+     * incremental-populate case (Obsidian renders the container, then adds rows
+     * asynchronously) AND post-load mutations (new file created, file renamed,
+     * folder expanded). Self-protected against infinite loops by filtering
+     * mutations to only those involving nav-folder/nav-file nodes — our own
+     * .lbl-div insertions don't trigger because they have different classes.
+     */
+    ensureObserver(fileExplorer: Element) {
+        if (this.treeObserver) return;
+        this.treeObserver = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+                if (m.type !== 'childList') continue;
+                const involved: Node[] = [];
+                m.addedNodes.forEach(n => involved.push(n));
+                m.removedNodes.forEach(n => involved.push(n));
+                const navChanged = involved.some(node => {
+                    if (!(node instanceof HTMLElement)) return false;
+                    return node.classList.contains('nav-folder') || node.classList.contains('nav-file');
+                });
+                if (navChanged) {
+                    this.scheduleApply();
+                    return;
+                }
+            }
+        });
+        this.treeObserver.observe(fileExplorer, { childList: true, subtree: true });
+    }
+
+    teardownObserver() {
+        if (this.treeObserver) {
+            this.treeObserver.disconnect();
+            this.treeObserver = null;
+        }
     }
 
     /**

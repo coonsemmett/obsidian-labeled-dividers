@@ -56,6 +56,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
   constructor() {
     super(...arguments);
     this.applyDebounce = null;
+    this.treeObserver = null;
   }
   async onload() {
     await this.loadSettings();
@@ -159,6 +160,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     );
   }
   onunload() {
+    this.teardownObserver();
     if (this.applyDebounce !== null) {
       window.clearTimeout(this.applyDebounce);
       this.applyDebounce = null;
@@ -306,7 +308,10 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
   applyDividers(retriesLeft = 5) {
     this.removeDividers();
     this.installStyles();
-    if (this.settings.dividers.length === 0) return;
+    if (this.settings.dividers.length === 0) {
+      this.teardownObserver();
+      return;
+    }
     const fileExplorer = document.querySelector(".nav-files-container");
     if (!fileExplorer) {
       if (retriesLeft > 0) {
@@ -314,6 +319,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
       }
       return;
     }
+    let placedCount = 0;
     this.settings.dividers.forEach((divider) => {
       const anchor = this.findAnchor(fileExplorer, divider);
       if (!anchor) return;
@@ -325,7 +331,47 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
       } else {
         parent.insertBefore(dividerEl, anchor.nextSibling);
       }
+      placedCount++;
     });
+    this.ensureObserver(fileExplorer);
+    if (placedCount === 0 && retriesLeft > 0) {
+      window.setTimeout(() => this.applyDividers(retriesLeft - 1), 200);
+    }
+  }
+  /**
+   * Set up a MutationObserver on the file explorer so any change to its child
+   * nav-folder / nav-file nodes triggers a debounced re-apply. This catches the
+   * incremental-populate case (Obsidian renders the container, then adds rows
+   * asynchronously) AND post-load mutations (new file created, file renamed,
+   * folder expanded). Self-protected against infinite loops by filtering
+   * mutations to only those involving nav-folder/nav-file nodes — our own
+   * .lbl-div insertions don't trigger because they have different classes.
+   */
+  ensureObserver(fileExplorer) {
+    if (this.treeObserver) return;
+    this.treeObserver = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.type !== "childList") continue;
+        const involved = [];
+        m.addedNodes.forEach((n) => involved.push(n));
+        m.removedNodes.forEach((n) => involved.push(n));
+        const navChanged = involved.some((node) => {
+          if (!(node instanceof HTMLElement)) return false;
+          return node.classList.contains("nav-folder") || node.classList.contains("nav-file");
+        });
+        if (navChanged) {
+          this.scheduleApply();
+          return;
+        }
+      }
+    });
+    this.treeObserver.observe(fileExplorer, { childList: true, subtree: true });
+  }
+  teardownObserver() {
+    if (this.treeObserver) {
+      this.treeObserver.disconnect();
+      this.treeObserver = null;
+    }
   }
   /**
    * Locate the .nav-folder / .nav-file element that matches a divider's anchor name.
