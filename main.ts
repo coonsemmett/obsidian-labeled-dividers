@@ -472,17 +472,27 @@ export default class FilesDividersPlugin extends Plugin {
      */
     ensureObserver(fileExplorer: Element) {
         if (this.treeObserver) return;
+
+        // Returns true if `node` is, or contains, a .nav-folder or .nav-file element.
+        // Critical for folder expansion: when Obsidian expands a folder, it inserts a
+        // .nav-folder-children container holding the new rows — the added node itself
+        // isn't a .nav-folder, the rows are DESCENDANTS. The 1.3.1 filter only checked
+        // the node's own class, so it missed sub-folder population entirely.
+        // Our own .lbl-div insertions still get filtered out — .lbl-div has no
+        // .nav-folder/.nav-file descendants, so it can't re-trigger us.
+        const containsNavTarget = (node: Node): boolean => {
+            if (!(node instanceof HTMLElement)) return false;
+            if (node.classList.contains('nav-folder') || node.classList.contains('nav-file')) return true;
+            return node.querySelector('.nav-folder, .nav-file') !== null;
+        };
+
         this.treeObserver = new MutationObserver((mutations) => {
             for (const m of mutations) {
                 if (m.type !== 'childList') continue;
-                const involved: Node[] = [];
-                m.addedNodes.forEach(n => involved.push(n));
-                m.removedNodes.forEach(n => involved.push(n));
-                const navChanged = involved.some(node => {
-                    if (!(node instanceof HTMLElement)) return false;
-                    return node.classList.contains('nav-folder') || node.classList.contains('nav-file');
-                });
-                if (navChanged) {
+                let triggered = false;
+                m.addedNodes.forEach(n => { if (!triggered && containsNavTarget(n)) triggered = true; });
+                if (!triggered) m.removedNodes.forEach(n => { if (!triggered && containsNavTarget(n)) triggered = true; });
+                if (triggered) {
                     this.scheduleApply();
                     return;
                 }

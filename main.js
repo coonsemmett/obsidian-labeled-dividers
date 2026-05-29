@@ -349,17 +349,22 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
    */
   ensureObserver(fileExplorer) {
     if (this.treeObserver) return;
+    const containsNavTarget = (node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      if (node.classList.contains("nav-folder") || node.classList.contains("nav-file")) return true;
+      return node.querySelector(".nav-folder, .nav-file") !== null;
+    };
     this.treeObserver = new MutationObserver((mutations) => {
       for (const m of mutations) {
         if (m.type !== "childList") continue;
-        const involved = [];
-        m.addedNodes.forEach((n) => involved.push(n));
-        m.removedNodes.forEach((n) => involved.push(n));
-        const navChanged = involved.some((node) => {
-          if (!(node instanceof HTMLElement)) return false;
-          return node.classList.contains("nav-folder") || node.classList.contains("nav-file");
+        let triggered = false;
+        m.addedNodes.forEach((n) => {
+          if (!triggered && containsNavTarget(n)) triggered = true;
         });
-        if (navChanged) {
+        if (!triggered) m.removedNodes.forEach((n) => {
+          if (!triggered && containsNavTarget(n)) triggered = true;
+        });
+        if (triggered) {
           this.scheduleApply();
           return;
         }
