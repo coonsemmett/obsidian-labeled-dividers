@@ -57,6 +57,12 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     super(...arguments);
     this.applyDebounce = null;
     this.treeObserver = null;
+    this.observedContainer = null;
+    // Bumped on every saveSettings(); stamped onto each .lbl-div element via
+    // data-settings-version. The idempotent applyDividers() uses this stamp to
+    // detect when a divider needs to be re-created because a global setting
+    // (color, font size, bold, etc.) changed.
+    this.settingsVersion = 0;
   }
   async onload() {
     await this.loadSettings();
@@ -180,6 +186,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
   }
   async saveSettings() {
+    this.settingsVersion++;
     await this.saveData(this.settings);
     if (this.settings.enabled) {
       this.applyDividers();
@@ -293,22 +300,33 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     new import_obsidian.Notice(`Cleared ${count} divider(s)`);
   }
   /**
-   * applyDividers — DOM-based rendering.
-   * Removes any previously-injected divider elements + style sheets, then for every
-   * configured divider finds the matching file/folder row and inserts a real <div>
-   * sibling (before for above-position, after for below). Each div is fully styled
-   * via CSS classes (one per labelStyle) and a CSS custom-property block for
-   * per-divider color overrides.
+   * applyDividers — IDEMPOTENT DOM-based rendering.
    *
-   * Real DOM (vs. earlier pseudo-element approach) means:
-   *   - no fighting with theme's overflow:hidden on .nav-file rows
-   *   - 8 visually-distinct styles can each define their own internal markup
-   *   - future wishlist item #13 (click label to edit) is unlocked
+   * Previous versions (1.3.0 - 1.3.2) did a "wipe and redraw" on every apply:
+   * removeDividers() killed every .lbl-div element, then a fresh pass re-inserted
+   * them. That made every observer-fired apply expensive AND made the file tree
+   * height change twice per apply, which caused two visible bugs:
+   *   1. Flicker — dividers blinking on/off during high-frequency mutations
+   *   2. Scroll jump — collapsing a folder fired the observer → wipe + redraw →
+   *      the brief moment when all dividers were gone shrank the tree, the
+   *      browser's scroll position recalculated, and Hugh lost his scroll spot
+   *
+   * 1.3.3 makes the apply a diff:
+   *   - Index existing .lbl-div elements in the DOM by their data-key
+   *   - Index desired dividers from settings by the same key
+   *   - Remove only stale (existing-but-not-desired) elements
+   *   - For each desired divider, check if a matching element already exists AND
+   *     is adjacent to the correct anchor AND was stamped with the current
+   *     settings version. If yes → no-op. If no → re-create just that one.
+   *
+   * Net effect: a folder-collapse observer firing finds nothing to change and
+   * does nothing — no DOM mutations, no scroll jump, no flicker. Only meaningful
+   * changes (anchor moved, settings changed, divider added/removed) cause work.
    */
   applyDividers(retriesLeft = 5) {
-    this.removeDividers();
     this.installStyles();
     if (this.settings.dividers.length === 0) {
+      this.clearAllDividerEls();
       this.teardownObserver();
       return;
     }
@@ -319,17 +337,41 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
       }
       return;
     }
+    const existing = /* @__PURE__ */ new Map();
+    document.querySelectorAll(".lbl-div").forEach((el) => {
+      const key = el.getAttribute("data-key");
+      if (key) existing.set(key, el);
+    });
+    const desired = /* @__PURE__ */ new Map();
+    this.settings.dividers.forEach((d) => {
+      desired.set(dividerKey(d.itemName, d.itemType, d.position), d);
+    });
+    existing.forEach((el, key) => {
+      if (!desired.has(key)) el.remove();
+    });
     let placedCount = 0;
-    this.settings.dividers.forEach((divider) => {
+    const versionStamp = String(this.settingsVersion);
+    desired.forEach((divider, key) => {
       const anchor = this.findAnchor(fileExplorer, divider);
-      if (!anchor) return;
-      const dividerEl = this.createDividerEl(divider);
+      if (!anchor) {
+        const orphan = existing.get(key);
+        if (orphan) orphan.remove();
+        return;
+      }
+      const existingEl = existing.get(key);
+      if (existingEl && this.dividerIsCurrent(existingEl, divider, anchor, versionStamp)) {
+        placedCount++;
+        return;
+      }
+      if (existingEl) existingEl.remove();
+      const newEl = this.createDividerEl(divider);
+      newEl.setAttribute("data-settings-version", versionStamp);
       const parent = anchor.parentNode;
       if (!parent) return;
       if (divider.position === "above") {
-        parent.insertBefore(dividerEl, anchor);
+        parent.insertBefore(newEl, anchor);
       } else {
-        parent.insertBefore(dividerEl, anchor.nextSibling);
+        parent.insertBefore(newEl, anchor.nextSibling);
       }
       placedCount++;
     });
@@ -337,6 +379,28 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     if (placedCount === 0 && retriesLeft > 0) {
       window.setTimeout(() => this.applyDividers(retriesLeft - 1), 200);
     }
+  }
+  /**
+   * Returns true if an existing .lbl-div element matches the desired divider
+   * AND is still positioned next to the correct anchor AND was created under
+   * the current settings version. Used by the idempotent apply to skip work.
+   */
+  dividerIsCurrent(el, divider, anchor, versionStamp) {
+    if (el.getAttribute("data-settings-version") !== versionStamp) return false;
+    if (divider.position === "above") {
+      if (el.nextElementSibling !== anchor) return false;
+    } else {
+      if (el.previousElementSibling !== anchor) return false;
+    }
+    return true;
+  }
+  /**
+   * Remove every .lbl-div from the document. Used when settings.dividers is
+   * empty or when the plugin is being torn down. NOT called from the
+   * idempotent applyDividers path — that does selective per-divider cleanup.
+   */
+  clearAllDividerEls() {
+    document.querySelectorAll(".lbl-div").forEach((el) => el.remove());
   }
   /**
    * Set up a MutationObserver on the file explorer so any change to its child
@@ -348,7 +412,11 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
    * .lbl-div insertions don't trigger because they have different classes.
    */
   ensureObserver(fileExplorer) {
-    if (this.treeObserver) return;
+    if (this.treeObserver && this.observedContainer === fileExplorer && document.body.contains(fileExplorer)) {
+      return;
+    }
+    this.teardownObserver();
+    this.observedContainer = fileExplorer;
     const containsNavTarget = (node) => {
       if (!(node instanceof HTMLElement)) return false;
       if (node.classList.contains("nav-folder") || node.classList.contains("nav-file")) return true;
@@ -377,6 +445,7 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
       this.treeObserver.disconnect();
       this.treeObserver = null;
     }
+    this.observedContainer = null;
   }
   /**
    * Locate the .nav-folder / .nav-file element that matches a divider's anchor name.
