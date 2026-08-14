@@ -19,3 +19,8 @@ data.json
 
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
+node_modules/
+.omc/
+.bear/
+**/.impeccable/
+.worktrees/

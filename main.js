@@ -49,21 +49,10 @@ var DEFAULT_SETTINGS = {
   labelItalic: false,
   enabled: true
 };
-function dividerKey(itemName, itemType, position) {
-  return `${itemType}::${position}::${itemName}`;
+function escapeForCss(str) {
+  return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\A ");
 }
 var FilesDividersPlugin = class extends import_obsidian.Plugin {
-  constructor() {
-    super(...arguments);
-    this.applyDebounce = null;
-    this.treeObserver = null;
-    this.observedContainer = null;
-    // Bumped on every saveSettings(); stamped onto each .lbl-div element via
-    // data-settings-version. The idempotent applyDividers() uses this stamp to
-    // detect when a divider needs to be re-created because a global setting
-    // (color, font size, bold, etc.) changed.
-    this.settingsVersion = 0;
-  }
   async onload() {
     await this.loadSettings();
     this.addRibbonIcon("minus", "Toggle files dividers", () => {
@@ -84,18 +73,9 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
       }
     });
     this.addSettingTab(new FilesDividersSettingTab(this.app, this));
-    this.app.workspace.onLayoutReady(() => {
-      if (this.settings.enabled) {
-        this.applyDividers();
-      }
-    });
-    this.registerEvent(
-      this.app.workspace.on("layout-change", () => {
-        if (this.settings.enabled) {
-          this.scheduleApply();
-        }
-      })
-    );
+    if (this.settings.enabled) {
+      this.refreshDividerStyles();
+    }
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
         if (file instanceof import_obsidian.TFolder || file instanceof import_obsidian.TFile) {
@@ -108,88 +88,103 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
           const existingBelow = this.settings.dividers.find(
             (d) => d.itemName === itemName && d.itemType === itemType && d.position === "below"
           );
-          if (existingAbove) {
-            menu.addItem((item) => {
-              item.setTitle(existingAbove.label ? `Edit label above ("${existingAbove.label}")\u2026` : "Add label to divider above\u2026").setIcon("text-cursor-input").onClick(() => {
-                this.promptAndEditLabel(existingAbove);
-              });
-            });
-            menu.addItem((item) => {
-              item.setTitle(existingAbove.label ? `Remove labeled divider above ("${existingAbove.label}")` : "Remove divider above").setIcon("x").onClick(() => {
-                this.removeDividerFromItem(itemName, itemType, "above");
-              });
-            });
-          } else {
-            menu.addItem((item) => {
-              item.setTitle("Add divider above").setIcon("minus").onClick(() => {
-                this.addDividerToItem(itemName, itemType, "above");
-              });
-            });
-            menu.addItem((item) => {
-              item.setTitle("Add labeled divider above\u2026").setIcon("text-cursor-input").onClick(() => {
-                this.promptAndAddLabeledDivider(itemName, itemType, "above");
-              });
-            });
-          }
-          if (existingBelow) {
-            menu.addItem((item) => {
-              item.setTitle(existingBelow.label ? `Edit label below ("${existingBelow.label}")\u2026` : "Add label to divider below\u2026").setIcon("text-cursor-input").onClick(() => {
-                this.promptAndEditLabel(existingBelow);
-              });
-            });
-            menu.addItem((item) => {
-              item.setTitle(existingBelow.label ? `Remove labeled divider below ("${existingBelow.label}")` : "Remove divider below").setIcon("x").onClick(() => {
-                this.removeDividerFromItem(itemName, itemType, "below");
-              });
-            });
-          } else {
-            menu.addItem((item) => {
-              item.setTitle("Add divider below").setIcon("minus").onClick(() => {
-                this.addDividerToItem(itemName, itemType, "below");
-              });
-            });
-            menu.addItem((item) => {
-              item.setTitle("Add labeled divider below\u2026").setIcon("text-cursor-input").onClick(() => {
-                this.promptAndAddLabeledDivider(itemName, itemType, "below");
-              });
-            });
-          }
-          if (existingAbove || existingBelow) {
-            menu.addItem((item) => {
-              item.setTitle("Remove all dividers").setIcon("trash").onClick(() => {
-                this.removeDividersFromItem(itemName, itemType);
-              });
-            });
-          }
+          this.addDividerSubmenuOrFallback(menu, {
+            itemName,
+            itemType,
+            existingAbove,
+            existingBelow
+          });
         }
       })
     );
   }
-  onunload() {
-    this.teardownObserver();
-    if (this.applyDebounce !== null) {
-      window.clearTimeout(this.applyDebounce);
-      this.applyDebounce = null;
+  addDividerSubmenuOrFallback(menu, context) {
+    let addedSubmenu = false;
+    menu.addItem((item) => {
+      item.setTitle("Dividers").setIcon("minus");
+      const setSubmenu = item.setSubmenu;
+      if (typeof setSubmenu !== "function") {
+        item.onClick(() => {
+          new import_obsidian.Notice("Submenus are not available in this Obsidian version.");
+        });
+        return;
+      }
+      const submenu = setSubmenu.call(item);
+      this.addDividerActionsToMenu(submenu, context);
+      addedSubmenu = true;
+    });
+    if (!addedSubmenu) {
+      this.addDividerActionsToMenu(menu, context);
     }
-    this.removeDividers();
   }
-  scheduleApply() {
-    if (this.applyDebounce !== null) {
-      window.clearTimeout(this.applyDebounce);
+  addDividerActionsToMenu(menu, context) {
+    const { itemName, itemType, existingAbove, existingBelow } = context;
+    if (existingAbove) {
+      menu.addItem((item) => {
+        item.setTitle(existingAbove.label ? `Edit label above ("${existingAbove.label}")\u2026` : "Add label to divider above\u2026").setIcon("text-cursor-input").onClick(() => {
+          this.promptAndEditLabel(existingAbove);
+        });
+      });
+      menu.addItem((item) => {
+        item.setTitle(existingAbove.label ? `Remove labeled divider above ("${existingAbove.label}")` : "Remove divider above").setIcon("x").onClick(() => {
+          this.removeDividerFromItem(itemName, itemType, "above");
+        });
+      });
+    } else {
+      menu.addItem((item) => {
+        item.setTitle("Add divider above").setIcon("minus").onClick(() => {
+          this.addDividerToItem(itemName, itemType, "above");
+        });
+      });
+      menu.addItem((item) => {
+        item.setTitle("Add labeled divider above\u2026").setIcon("text-cursor-input").onClick(() => {
+          this.promptAndAddLabeledDivider(itemName, itemType, "above");
+        });
+      });
     }
-    this.applyDebounce = window.setTimeout(() => {
-      this.applyDebounce = null;
-      this.applyDividers();
-    }, 150);
+    menu.addSeparator();
+    if (existingBelow) {
+      menu.addItem((item) => {
+        item.setTitle(existingBelow.label ? `Edit label below ("${existingBelow.label}")\u2026` : "Add label to divider below\u2026").setIcon("text-cursor-input").onClick(() => {
+          this.promptAndEditLabel(existingBelow);
+        });
+      });
+      menu.addItem((item) => {
+        item.setTitle(existingBelow.label ? `Remove labeled divider below ("${existingBelow.label}")` : "Remove divider below").setIcon("x").onClick(() => {
+          this.removeDividerFromItem(itemName, itemType, "below");
+        });
+      });
+    } else {
+      menu.addItem((item) => {
+        item.setTitle("Add divider below").setIcon("minus").onClick(() => {
+          this.addDividerToItem(itemName, itemType, "below");
+        });
+      });
+      menu.addItem((item) => {
+        item.setTitle("Add labeled divider below\u2026").setIcon("text-cursor-input").onClick(() => {
+          this.promptAndAddLabeledDivider(itemName, itemType, "below");
+        });
+      });
+    }
+    if (existingAbove || existingBelow) {
+      menu.addSeparator();
+      menu.addItem((item) => {
+        item.setTitle("Remove all dividers").setIcon("trash").onClick(() => {
+          this.removeDividersFromItem(itemName, itemType);
+        });
+      });
+    }
+  }
+  onunload() {
+    this.removeDividers();
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
   }
   async saveSettings() {
-    this.settingsVersion++;
     await this.saveData(this.settings);
     if (this.settings.enabled) {
-      this.applyDividers();
+      this.refreshDividerStyles();
     } else {
       this.removeDividers();
     }
@@ -300,432 +295,148 @@ var FilesDividersPlugin = class extends import_obsidian.Plugin {
     new import_obsidian.Notice(`Cleared ${count} divider(s)`);
   }
   /**
-   * applyDividers — IDEMPOTENT DOM-based rendering.
+   * Phase C rendering — pure CSS, zero DOM injection.
    *
-   * Previous versions (1.3.0 - 1.3.2) did a "wipe and redraw" on every apply:
-   * removeDividers() killed every .lbl-div element, then a fresh pass re-inserted
-   * them. That made every observer-fired apply expensive AND made the file tree
-   * height change twice per apply, which caused two visible bugs:
-   *   1. Flicker — dividers blinking on/off during high-frequency mutations
-   *   2. Scroll jump — collapsing a folder fired the observer → wipe + redraw →
-   *      the brief moment when all dividers were gone shrank the tree, the
-   *      browser's scroll position recalculated, and Hugh lost his scroll spot
+   * History: versions 1.2.4–1.3.5 painted dividers by inserting our own <div>
+   * nodes between Obsidian's file-tree rows, then used a MutationObserver to
+   * re-insert them whenever Obsidian rebuilt the tree (file open/close, folder
+   * expand/collapse, reveal-active-file). That re-insertion loop was the root
+   * cause of BOTH symptoms: flicker (our nodes blinking out and back) and the
+   * scroll jump (our nodes changed the tree height, so the browser recomputed
+   * scrollTop and Hugh lost his place).
    *
-   * 1.3.3 makes the apply a diff:
-   *   - Index existing .lbl-div elements in the DOM by their data-key
-   *   - Index desired dividers from settings by the same key
-   *   - Remove only stale (existing-but-not-desired) elements
-   *   - For each desired divider, check if a matching element already exists AND
-   *     is adjacent to the correct anchor AND was stamped with the current
-   *     settings version. If yes → no-op. If no → re-create just that one.
-   *
-   * Net effect: a folder-collapse observer firing finds nothing to change and
-   * does nothing — no DOM mutations, no scroll jump, no flicker. Only meaningful
-   * changes (anchor moved, settings changed, divider added/removed) cause work.
+   * Phase C removes the loop entirely. Instead of injecting nodes, we generate a
+   * single global stylesheet that targets Obsidian's OWN rows via their
+   * data-path attribute (e.g. .nav-folder-title[data-path="AI"]) and paints the
+   * divider with a ::before ('above') or ::after ('below') pseudo-element.
+   * Because the rules live in document.head and match Obsidian's own attributes,
+   * they re-apply automatically the instant a row renders — even after Obsidian
+   * rebuilds the tree. Nothing of ours is ever destroyed or re-inserted, the
+   * pseudo-elements paint inside reserved margin space (so they don't shift row
+   * height the way injected nodes did), and there is no observer, no retry, and
+   * no scroll handling. No flicker, no scroll jump, by construction.
    */
-  applyDividers(retriesLeft = 5) {
-    this.installStyles();
-    if (this.settings.dividers.length === 0) {
-      this.clearAllDividerEls();
-      this.teardownObserver();
-      return;
+  refreshDividerStyles() {
+    const styleEl = this.getDynamicStyleEl();
+    const css = this.buildAllCss();
+    if (styleEl.textContent !== css) {
+      styleEl.textContent = css;
     }
-    const fileExplorer = document.querySelector(".nav-files-container");
-    if (!fileExplorer) {
-      if (retriesLeft > 0) {
-        window.setTimeout(() => this.applyDividers(retriesLeft - 1), 200);
-      }
-      return;
-    }
-    const existing = /* @__PURE__ */ new Map();
-    document.querySelectorAll(".lbl-div").forEach((el) => {
-      const key = el.getAttribute("data-key");
-      if (key) existing.set(key, el);
-    });
-    const desired = /* @__PURE__ */ new Map();
-    this.settings.dividers.forEach((d) => {
-      desired.set(dividerKey(d.itemName, d.itemType, d.position), d);
-    });
-    existing.forEach((el, key) => {
-      if (!desired.has(key)) el.remove();
-    });
-    let placedCount = 0;
-    const versionStamp = String(this.settingsVersion);
-    desired.forEach((divider, key) => {
-      const anchor = this.findAnchor(fileExplorer, divider);
-      if (!anchor) {
-        const orphan = existing.get(key);
-        if (orphan) orphan.remove();
-        return;
-      }
-      const existingEl = existing.get(key);
-      if (existingEl && this.dividerIsCurrent(existingEl, divider, anchor, versionStamp)) {
-        placedCount++;
-        return;
-      }
-      if (existingEl) existingEl.remove();
-      const newEl = this.createDividerEl(divider);
-      newEl.setAttribute("data-settings-version", versionStamp);
-      const parent = anchor.parentNode;
-      if (!parent) return;
-      if (divider.position === "above") {
-        parent.insertBefore(newEl, anchor);
-      } else {
-        parent.insertBefore(newEl, anchor.nextSibling);
-      }
-      placedCount++;
-    });
-    this.ensureObserver(fileExplorer);
-    if (placedCount === 0 && retriesLeft > 0) {
-      window.setTimeout(() => this.applyDividers(retriesLeft - 1), 200);
-    }
-  }
-  /**
-   * Returns true if an existing .lbl-div element matches the desired divider
-   * AND is still positioned next to the correct anchor AND was created under
-   * the current settings version. Used by the idempotent apply to skip work.
-   */
-  dividerIsCurrent(el, divider, anchor, versionStamp) {
-    if (el.getAttribute("data-settings-version") !== versionStamp) return false;
-    if (divider.position === "above") {
-      if (el.nextElementSibling !== anchor) return false;
-    } else {
-      if (el.previousElementSibling !== anchor) return false;
-    }
-    return true;
-  }
-  /**
-   * Remove every .lbl-div from the document. Used when settings.dividers is
-   * empty or when the plugin is being torn down. NOT called from the
-   * idempotent applyDividers path — that does selective per-divider cleanup.
-   */
-  clearAllDividerEls() {
     document.querySelectorAll(".lbl-div").forEach((el) => el.remove());
+    const legacyBase = document.getElementById("lbl-div-styles");
+    if (legacyBase) legacyBase.remove();
   }
-  /**
-   * Set up a MutationObserver on the file explorer so any change to its child
-   * nav-folder / nav-file nodes triggers a debounced re-apply. This catches the
-   * incremental-populate case (Obsidian renders the container, then adds rows
-   * asynchronously) AND post-load mutations (new file created, file renamed,
-   * folder expanded). Self-protected against infinite loops by filtering
-   * mutations to only those involving nav-folder/nav-file nodes — our own
-   * .lbl-div insertions don't trigger because they have different classes.
-   */
-  ensureObserver(fileExplorer) {
-    if (this.treeObserver && this.observedContainer === fileExplorer && document.body.contains(fileExplorer)) {
-      return;
+  getDynamicStyleEl() {
+    let el = document.getElementById("lbl-div-dynamic");
+    if (!el) {
+      el = document.createElement("style");
+      el.id = "lbl-div-dynamic";
+      document.head.appendChild(el);
     }
-    this.teardownObserver();
-    this.observedContainer = fileExplorer;
-    const containsNavTarget = (node) => {
-      if (!(node instanceof HTMLElement)) return false;
-      if (node.classList.contains("nav-folder") || node.classList.contains("nav-file")) return true;
-      return node.querySelector(".nav-folder, .nav-file") !== null;
-    };
-    this.treeObserver = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        if (m.type !== "childList") continue;
-        let triggered = false;
-        m.addedNodes.forEach((n) => {
-          if (!triggered && containsNavTarget(n)) triggered = true;
-        });
-        if (!triggered) m.removedNodes.forEach((n) => {
-          if (!triggered && containsNavTarget(n)) triggered = true;
-        });
-        if (triggered) {
-          this.scheduleApply();
-          return;
-        }
-      }
+    return el;
+  }
+  buildAllCss() {
+    const blocks = [];
+    this.settings.dividers.forEach((d) => {
+      if (!d.itemName.trim()) return;
+      const block = this.buildDividerCss(d);
+      if (block) blocks.push(block);
     });
-    this.treeObserver.observe(fileExplorer, { childList: true, subtree: true });
-  }
-  teardownObserver() {
-    if (this.treeObserver) {
-      this.treeObserver.disconnect();
-      this.treeObserver = null;
-    }
-    this.observedContainer = null;
+    return blocks.join("\n\n");
   }
   /**
-   * Locate the .nav-folder / .nav-file element that matches a divider's anchor name.
-   * For files we accept name-with-extension and name-without-extension on either side
-   * (the explorer DOM strips extensions for visible titles in some Obsidian configs).
+   * Build the CSS for one divider: a rule that reserves space on the matched
+   * row, plus a ::before/::after rule that paints the line (and label, if any).
+   * Matches the item by name at the vault root (data-path="Name") or nested
+   * (data-path ends with "/Name"), mirroring the old name-based findAnchor.
    */
-  findAnchor(container, divider) {
+  buildDividerCss(d) {
     var _a, _b;
-    const itemClass = divider.itemType === "folder" ? "nav-folder" : "nav-file";
-    const titleClass = divider.itemType === "folder" ? "nav-folder-title" : "nav-file-title";
-    const candidates = container.querySelectorAll(`.${itemClass}`);
-    for (let i = 0; i < candidates.length; i++) {
-      const candidate = candidates[i];
-      const titleEl = candidate.querySelector(`.${titleClass}`);
-      if (!titleEl) continue;
-      const name = (_b = (_a = titleEl.textContent) == null ? void 0 : _a.trim()) != null ? _b : "";
-      if (divider.itemType === "file") {
-        const nameNoExt = name.replace(/\.[^/.]+$/, "");
-        const targetNoExt = divider.itemName.replace(/\.[^/.]+$/, "");
-        if (name === divider.itemName || nameNoExt === targetNoExt || name === targetNoExt || nameNoExt === divider.itemName) {
-          return candidate;
-        }
-      } else if (name === divider.itemName) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-  /**
-   * Build the divider's HTMLElement for the appropriate style.
-   * Each style defines its own internal markup; CSS classes from installStyles()
-   * paint the look. Per-divider colors flow through CSS custom properties so
-   * overrides don't require new style rules.
-   */
-  createDividerEl(divider) {
-    var _a, _b;
-    const labelText = ((_a = divider.label) != null ? _a : "").trim();
-    const style = (_b = divider.labelStyle) != null ? _b : "above";
-    const labelColor = divider.labelColor || this.settings.labelColor;
-    const lineColor = divider.lineColor || this.settings.dividerColor;
-    const container = document.createElement("div");
-    container.classList.add("lbl-div");
-    container.classList.add(`lbl-div--pos-${divider.position}`);
-    container.classList.add(labelText ? `lbl-div--${style}` : "lbl-div--plain");
-    container.setAttribute("data-key", dividerKey(divider.itemName, divider.itemType, divider.position));
-    container.style.setProperty("--lbl-div-label-color", labelColor);
-    container.style.setProperty("--lbl-div-line-color", lineColor);
-    container.style.setProperty("--lbl-div-thickness", `${this.settings.dividerThickness}px`);
-    container.style.setProperty("--lbl-div-font-size", `${this.settings.labelFontSize}px`);
-    container.style.setProperty("--lbl-div-font-weight", this.settings.labelBold ? "600" : "400");
-    container.style.setProperty("--lbl-div-font-style", this.settings.labelItalic ? "italic" : "normal");
-    container.style.setProperty("--lbl-div-text-transform", this.settings.labelUppercase ? "uppercase" : "none");
-    container.style.setProperty("--lbl-div-letter-spacing", this.settings.labelUppercase ? "0.08em" : "normal");
+    const titleClass = d.itemType === "folder" ? "nav-folder-title" : "nav-file-title";
+    const scope = '.workspace-leaf-content[data-type="file-explorer"]';
+    const name = escapeForCss(d.itemName);
+    const bases = [
+      `${scope} .${titleClass}[data-path="${name}"]`,
+      `${scope} .${titleClass}[data-path$="/${name}"]`
+    ];
+    const isAbove = d.position !== "below";
+    const pseudo = isAbove ? "::before" : "::after";
+    const hostSel = bases.join(", ");
+    const pseudoSel = bases.map((b) => b + pseudo).join(", ");
+    const labelText = ((_a = d.label) != null ? _a : "").trim();
+    const lineColor = d.lineColor || this.settings.dividerColor;
+    const labelColor = d.labelColor || this.settings.labelColor;
+    const thickness = Math.max(1, this.settings.dividerThickness);
+    const fontSize = this.settings.labelFontSize;
+    const fontWeight = this.settings.labelBold ? 600 : 400;
+    const fontStyle = this.settings.labelItalic ? "italic" : "normal";
+    const transform = this.settings.labelUppercase ? "uppercase" : "none";
+    const letterSpacing = this.settings.labelUppercase ? "0.08em" : "normal";
+    const lineCss = `color-mix(in srgb, ${lineColor} 70%, transparent)`;
+    const labelType = `color: ${labelColor}; font-size: ${fontSize}px; font-weight: ${fontWeight}; font-style: ${fontStyle}; text-transform: ${transform}; letter-spacing: ${letterSpacing}; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;`;
     if (!labelText) {
-      const line = document.createElement("div");
-      line.className = "lbl-div__line";
-      container.appendChild(line);
-      return container;
+      const reserve2 = 13;
+      const offset = Math.round(reserve2 / 2);
+      const edge2 = isAbove ? `top: -${offset}px;` : `bottom: -${offset}px;`;
+      const margin2 = isAbove ? `margin-top: ${reserve2}px;` : `margin-bottom: ${reserve2}px;`;
+      return `${hostSel} { ${margin2} position: relative; }
+${pseudoSel} {
+    content: ""; position: absolute; left: 12px; right: 12px; ${edge2}
+    height: ${thickness}px; background: ${lineCss}; border-radius: 1px; pointer-events: none;
+}`;
     }
-    const mkEl = (tag, cls, text) => {
-      const el = document.createElement(tag);
-      el.className = cls;
-      if (text !== void 0) el.textContent = text;
-      return el;
-    };
+    const content = `"${escapeForCss(labelText)}"`;
+    const reserve = 24;
+    const edge = isAbove ? `top: -${reserve - 2}px;` : `bottom: -${reserve - 2}px;`;
+    const margin = isAbove ? `margin-top: ${reserve}px;` : `margin-bottom: ${reserve}px;`;
+    const style = (_b = d.labelStyle) != null ? _b : "above";
+    let body;
     switch (style) {
-      case "centered":
-        container.append(
-          mkEl("div", "lbl-div__line-side"),
-          mkEl("span", "lbl-div__label", labelText),
-          mkEl("div", "lbl-div__line-side")
-        );
+      case "underline":
+        body = `display: inline-flex; align-items: flex-end; padding-bottom: 3px; border-bottom: ${thickness}px solid ${lineColor}; ${labelType}`;
         break;
       case "chip":
-        container.append(
-          mkEl("span", "lbl-div__chip", labelText),
-          mkEl("div", "lbl-div__line-thin")
-        );
-        break;
-      case "underline":
-        container.append(mkEl("span", "lbl-div__label-underline", labelText));
+        body = `display: inline-flex; align-items: center; padding: 2px 8px; background: color-mix(in srgb, ${labelColor} 20%, transparent); border-radius: 999px; ${labelType} font-weight: 700;`;
         break;
       case "section":
-        container.append(
-          mkEl("div", "lbl-div__bar"),
-          mkEl("span", "lbl-div__label", labelText)
-        );
+        body = `display: flex; align-items: center; padding: 2px 10px; background: color-mix(in srgb, ${labelColor} 10%, transparent); border-left: 2px solid ${labelColor}; ${labelType} font-weight: 700;`;
         break;
       case "minimal":
-        container.append(
-          mkEl("div", "lbl-div__label-soft", labelText),
-          mkEl("div", "lbl-div__line-soft")
-        );
+        body = `display: flex; align-items: flex-end; padding-bottom: 3px; border-bottom: 1px solid ${lineCss}; ${labelType} text-transform: none; letter-spacing: normal; font-weight: 500; opacity: 0.75;`;
         break;
       case "tucked":
-        container.append(
-          mkEl("span", "lbl-div__label-tuck", labelText),
-          mkEl("div", "lbl-div__line-thick")
-        );
+        body = `display: flex; align-items: flex-end; justify-content: flex-end; padding-bottom: 4px; border-bottom: 2px solid ${labelColor}; ${labelType}`;
         break;
       case "gradient":
-        container.append(mkEl("div", "lbl-div__label-bar", labelText));
+        body = `display: flex; align-items: center; justify-content: center; background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, ${labelColor} 16%, transparent) 50%, transparent 100%); ${labelType}`;
+        break;
+      case "centered":
+        body = `display: flex; align-items: center; justify-content: center; background: linear-gradient(${lineCss}, ${lineCss}) center / 100% ${thickness}px no-repeat; ${labelType}`;
         break;
       case "above":
       default:
-        container.append(
-          mkEl("div", "lbl-div__label", labelText),
-          mkEl("div", "lbl-div__line")
-        );
+        body = `display: flex; align-items: flex-end; padding-bottom: 4px; border-bottom: ${thickness}px solid ${lineCss}; ${labelType}`;
         break;
     }
-    return container;
+    const nestedIndent = `
+${bases[1]}${pseudo} { padding-left: 14px; }`;
+    return `${hostSel} { ${margin} position: relative; }
+${pseudoSel} {
+    content: ${content}; position: absolute; left: 12px; right: 12px; ${edge}
+    height: ${reserve - 4}px; box-sizing: border-box; pointer-events: none;
+    ${body}
+}` + nestedIndent;
   }
   /**
-   * Inject the single base stylesheet covering all 8 label styles + plain dividers.
-   * Idempotent — reuses the existing <style id="lbl-div-styles"> if already attached.
-   */
-  installStyles() {
-    let styleEl = document.getElementById("lbl-div-styles");
-    if (!styleEl) {
-      styleEl = document.createElement("style");
-      styleEl.id = "lbl-div-styles";
-      document.head.appendChild(styleEl);
-    }
-    styleEl.textContent = `
-.lbl-div { display: block; user-select: none; pointer-events: none; }
-.lbl-div__label, .lbl-div__label-soft, .lbl-div__label-underline,
-.lbl-div__label-tuck, .lbl-div__label-bar, .lbl-div__chip {
-    color: var(--lbl-div-label-color, #888);
-    font-size: var(--lbl-div-font-size, 11px);
-    font-weight: var(--lbl-div-font-weight, 600);
-    font-style: var(--lbl-div-font-style, normal);
-    text-transform: var(--lbl-div-text-transform, uppercase);
-    letter-spacing: var(--lbl-div-letter-spacing, 0.08em);
-    line-height: 1.2;
-}
-.lbl-div__line, .lbl-div__line-side, .lbl-div__line-thin,
-.lbl-div__line-soft, .lbl-div__line-thick {
-    background-color: var(--lbl-div-line-color, #484848);
-    border-radius: 1px;
-}
-
-/* Plain divider */
-.lbl-div--plain { padding: 6px 0; }
-.lbl-div--plain .lbl-div__line {
-    height: var(--lbl-div-thickness, 1px);
-    margin: 0 12px;
-    opacity: 0.7;
-}
-
-/* A \u2014 Above-style (default) */
-.lbl-div--above { padding: 6px 0 4px; }
-.lbl-div--above .lbl-div__label { padding: 0 12px; }
-.lbl-div--above .lbl-div__line {
-    height: var(--lbl-div-thickness, 1px);
-    margin: 4px 12px 0;
-    opacity: 0.7;
-}
-
-/* B \u2014 Centered through line */
-.lbl-div--centered {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 16px;
-}
-.lbl-div--centered .lbl-div__line-side {
-    flex: 1;
-    height: var(--lbl-div-thickness, 1px);
-    opacity: 0.7;
-}
-.lbl-div--centered .lbl-div__label { white-space: nowrap; }
-
-/* C \u2014 Pill / chip */
-.lbl-div--chip {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px 6px 16px;
-}
-.lbl-div--chip .lbl-div__chip {
-    display: inline-block;
-    background-color: color-mix(in srgb, var(--lbl-div-label-color, #888) 20%, transparent);
-    padding: 2px 8px;
-    border-radius: 999px;
-    letter-spacing: 0.06em;
-    font-size: calc(var(--lbl-div-font-size, 11px) - 1px);
-    font-weight: 700;
-}
-.lbl-div--chip .lbl-div__line-thin {
-    flex: 1;
-    height: 1px;
-    opacity: 0.5;
-}
-
-/* D \u2014 Underline only */
-.lbl-div--underline { padding: 8px 16px 6px; }
-.lbl-div--underline .lbl-div__label-underline {
-    display: inline-block;
-    border-bottom: 1px solid var(--lbl-div-line-color, #484848);
-    padding-bottom: 3px;
-}
-
-/* E \u2014 Section header */
-.lbl-div--section {
-    position: relative;
-    background-color: color-mix(in srgb, var(--lbl-div-label-color, #888) 10%, transparent);
-    padding: 5px 12px 5px 14px;
-    margin: 4px 0;
-}
-.lbl-div--section .lbl-div__bar {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    background-color: var(--lbl-div-label-color, #888);
-    border-radius: 0;
-}
-.lbl-div--section .lbl-div__label { font-weight: 700; }
-
-/* F \u2014 Notion-style minimal */
-.lbl-div--minimal { padding: 6px 0 4px; }
-.lbl-div--minimal .lbl-div__label-soft {
-    padding: 0 16px;
-    font-weight: 500;
-    opacity: 0.7;
-    text-transform: none;
-    letter-spacing: normal;
-}
-.lbl-div--minimal .lbl-div__line-soft {
-    height: 1px;
-    margin: 3px 12px 0;
-    opacity: 0.4;
-}
-
-/* G \u2014 Bold accent + tucked label */
-.lbl-div--tucked {
-    position: relative;
-    padding: 12px 12px 6px;
-}
-.lbl-div--tucked .lbl-div__label-tuck {
-    position: absolute;
-    top: -1px;
-    right: 14px;
-    font-size: calc(var(--lbl-div-font-size, 11px) - 1px);
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    background-color: var(--background-primary, var(--background-secondary, #1e1e1e));
-    padding: 0 6px;
-}
-.lbl-div--tucked .lbl-div__line-thick {
-    height: 2px;
-    margin: 0 12px;
-    background-color: var(--lbl-div-label-color, #888);
-    opacity: 0.7;
-}
-
-/* H \u2014 Soft gradient bar */
-.lbl-div--gradient {
-    margin: 4px 0;
-    padding: 5px 12px;
-    background: linear-gradient(90deg,
-        transparent 0%,
-        color-mix(in srgb, var(--lbl-div-label-color, #888) 13%, transparent) 50%,
-        transparent 100%);
-    text-align: center;
-}
-.lbl-div--gradient .lbl-div__label-bar { letter-spacing: 0.1em; }
-`;
-  }
-  /**
-   * Remove every divider element this plugin has injected, plus its stylesheet.
-   * Also scrubs the legacy pseudo-element residue from pre-1.3.0 versions in case
-   * an existing install upgraded mid-session.
+   * Remove the divider stylesheet and scrub any legacy injected nodes/attrs from
+   * earlier versions. Called on disable and on unload.
    */
   removeDividers() {
+    const dyn = document.getElementById("lbl-div-dynamic");
+    if (dyn) dyn.remove();
     document.querySelectorAll(".lbl-div").forEach((el) => el.remove());
-    const styleEl = document.getElementById("lbl-div-styles");
-    if (styleEl) styleEl.remove();
+    const baseStyles = document.getElementById("lbl-div-styles");
+    if (baseStyles) baseStyles.remove();
     const legacyStyles = document.getElementById("files-dividers-styles");
     if (legacyStyles) legacyStyles.remove();
     document.querySelectorAll("[data-item]").forEach((el) => {
